@@ -1,300 +1,361 @@
-# Unify TCGA sample barcode
-file_format <- function(filename=filename,samplenamecol){
+## Basic function
 
+file_format <- function(filename=filename,samplenamecol){
   names <- colnames(filename)
   names[samplenamecol] <- "samplename"
   names -> colnames(filename)
-  
   filename$samplename <- substr(filename$samplename,1,12)
   filename$samplename <- gsub("[.]","-",filename$samplename)
-  
   return(filename)
-  
 }
 
-
-##################################################################
-### --- Step1: Construct Count Matrix by type ----- ####
-
-# Construct ccf distribution count matrix for given samples
-CountMatBuild <- function(samplelist){
+load_ccf <- function(samplename,input){
+  Check <- ArgumentCheck::newArgCheck()
+  suppressWarnings(rm(ssm,res,ccubeRes))
   
-  ccf_folder <- paste0(input_folder,type,"/")
+  format1 <- paste0(input,samplename,"/ccube_result.RData")
+  format2 <- paste0(input,samplename,"/ccube_res_v0.3_final_new.RData")
+  format3 <- paste0(input,samplename,"/ccube_res_run1.RData")
+  
+  if (file.exists(format1 )) load(format1)  
+     else if(file.exists(format2)) load(format2) 
+      else if(file.exists(format3)) load(format3) 
+        else{
+          ArgumentCheck::addError(
+          msg = "No file has been loaded",
+          argcheck = Check)
+          }
+  
+  if (exists("ssm")) return(ssm) 
+    else if (exists("res")) return(res$ssm) 
+      else if (exists("ccubeRes")) return(ccubeRes$ssm)
+}
+
+## Step1: Ccube input format
+  ParseSnvCnaPcawgFormat <- function (ssm, cna) {
+      library(dplyr)
+      
+      ssm <- ssm %>%
+        mutate(chr= substr(chr,4,length(chr)),
+               cn_frac = NA,
+               major_cn = NA,
+               minor_cn = NA,
+               mutation_id = NA)
+      
+      for (jj in seq_len(nrow(cna)) ) {
+        cc = cna[jj,]
+        
+        idx = which(ssm$chr == cc$chromosome &  (ssm$Start_Position >= cc$start & ssm$End_Position <= cc$end) )
+        
+        if (length(idx) > 0) {
+          ssm[idx,] <- ssm[idx,] %>% 
+            mutate( major_cn=cc$major_cn,minor_cn =cc$minor_cn, cn_frac = 1)
+        }
+      }
+      
+      ssm$mutation_id = paste0(ssm$chr, "_", ssm$Start_Position )
+      
+      ssm <- ssm %>%
+        select(-chr,-Start_Position,-End_Position,-df.n_alt_count,-n_ref_count) %>%
+        rename(var_counts='t_alt_count',ref_counts='t_ref_count') %>%
+        mutate(total_counts=var_counts+ref_counts,normal_cn=2) %>%
+        filter(!is.na(major_cn) ,!is.na(minor_cn),!is.na(cn_frac),major_cn > 0)
+      
+      return(ssm)
+    }
+  
+ ## Step2: Build post summary for ccube samples 
+Build_post_summary <- function(input,output=NA){
+  library(magrittr)
+  library(dplyr)
+  
+  sample_list <- dir(input)
+  
+  colnames <- c("samplename","cancertype","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5","purity","ccube_purity")
+
+  # if (i==1) cat("Start building post summary for",length(sample_list),"files","\n")
+  # if (i%%1000==0) print(paste0("----- Finish loading ",i," files -----"))
+  
+  post_summary_analyse <- function(samplename){
+      suppressWarnings(rm(ssm))
+      ssm <- load_ccf(samplename,input=input)
+      ccf <- unique(ssm$ccube_ccf_mean)
+      ccf_mean_order <- sort(ccf,decreasing = T)
+      Ncluster <- length(ccf)
+    
+      post_summary <- data.frame(samplename <- samplename) %>%
+        mutate(
+          cancertype = ifelse(exists("ssm$cancertype"),as.character(unique(ssm$cancertype)),NA),
+          n_mutations = nrow(ssm),
+          ccf_01_percentage = mean(ssm$ccube_ccf<=1),
+          ccf_02_percentage = mean(ssm$ccube_ccf<=2),
+          Ncluster = Ncluster,
+          purity = unique(ssm$purity),
+          ccube_purity = ifelse(exists("ssm$ccube_purity"),unique(ssm$ccube_purity),NA),
+          ccf_mean_cluster1 = ifelse(Ncluster>=1,ccf_mean_order[1],0),
+          ccf_mean_cluster2 = ifelse(Ncluster>=2,ccf_mean_order[2],0),
+          ccf_mean_cluster3 = ifelse(Ncluster>=3,ccf_mean_order[3],0),
+          ccf_mean_cluster4 = ifelse(Ncluster>=4,ccf_mean_order[4],0),
+          ccf_mean_cluster5 = ifelse(Ncluster>=5,ccf_mean_order[5],0)
+        ) %>% set_colnames(colnames)
+      return(post_summary)
+     }
+     
+  post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
+  
+  if (!is.na(output)) {
+    write.csv(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".csv"))
+    save(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".RData"))
+  }
+  return(post_summary)
+}
+
+ ## Step2: Construct ccf matrix
+ CountMatBuild <- function(samplelist,upper,input_folder,genelist=NA){
+  library(dplyr)
   
   n_sample <- length(samplelist)
-  ccfBand <- seq(0,1,length.out = 101)
-  ccfBandCountsMat <- matrix(nrow=length(ccfBand),ncol=n_sample)
+  rows <- upper/0.01 + 1
   
-  if (n_sample !=0) stop("The number of choosen sample is 0")
+  ccfBand <- seq(0,upper,length.out = rows)
+  ccfBandCountsMat <- matrix(nrow=rows,ncol=n_sample)
+  
+  if (n_sample ==0) stop("The number of choosen sample is 0")
   
   for (j in 1:n_sample){
     sample_name <- as.character(samplelist[j])
-    
-    if (file.exists(paste0(tcga_folder,sample_name,"/ccube_res_v0.3_final_new.RData"))) load(paste0(ccf_folder,sample_name,"/ccube_res_v0.3_final_new.RData"))
-    if (file.exists(paste0(tcga_folder,sample_name,"/ccube_result.RData"))) load(paste0(ccf_folder,sample_name,"/ccube_result.RData"))
-   
-    ssm <- ccubeRes[['ssm']]
-    
-    matchBandCountDf <- data.frame(Var1=as.character(1:101))
+    ssm <- load_ccf(sample_name,input=input_folder)
+    if (!is.na(genelist)) ssm <- subset(ssm,SYMBOL %in% genelist)
+    matchBandCountDf <- data.frame(Var1=as.character(1:rows))
     matchBandCountDf <- left_join(matchBandCountDf,as.data.frame(table(findInterval(ssm$ccube_ccf,ccfBand))),stringAsFactors = F,by="Var1")
     ccfBandCountsMat[,j] <- matchBandCountDf$Freq
-    
   }
+  # delete the final row
+  ccfBandCountsMat <- ccfBandCountsMat[-rows,]
+  ccfBandCountsMat[is.na(ccfBandCountsMat)] <- 0
   
-  return(ccfBandCountsMat)
-  
+  if (n_sample==1) {ccfBandFractionMat <- ccfBandCountsMat/sum(ccfBandCountsMat)
+                    ccfBandFractionMat.random <- ccfBandFractionMat[sample(1:(rows-1))]
+                    ccfBandCountsMat.random <- ccfBandCountsMat[sample(1:(rows-1))]} else 
+    {ccfBandFractionMat <- apply(ccfBandCountsMat,2,function(x) x/sum(x))
+     ccfBandCountsMat.random <- NMF::randomize(ccfBandCountsMat)
+     ccfBandFractionMat.random <- apply(ccfBandCountsMat.random,2,function(x) x/sum(x))
+     }
+    
+  return(list(ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat,ccfBandFractionMat.random))
 }
+                                        
+TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEstimateType="fraction"){
+  
+  type <- post_summary %>%
+    group_by(cancertype)%>%
+    summarize(n=n())
+  
+  typelist <- as.character(subset(type,n>=30)$cancertype)
+  
+  ntype <- length(typelist)
+  
+  print(paste0("Construct ccf count matrix for ",length(ntype)," types (> 30 samples)"))
 
-# Construct ccf distribution count matrix for given cancer types 
-TypeCountBuildTCGA <- function(cancertype,input_folder,output){
-    
-    x <- load(paste0(input_folder,"TCGA_summary.RData"))
-    post_summary <- get(x)
-    
-    if (!dir.exists(output)) dir.create(output)
-    
-    for (i in 1:length(cancertype)){
-      
-      library(NMF)
-      library(dplyr)
-      
-      # get sample list for each type
-      type <- cancertype[i]
-      
-      print(paste0("finish load ",i,'th type - ',type))
-    
-      samplelist <- subset(post_summary,Types==type)$samplename
-      n_sample <- length(samplelist)
-  
-      ccfBandCountsMat <- CountMatBuild(samplelist)
-    
-      if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
-      if (!dir.exists(paste0(output,"Working/"))) dir.create(paste0(output,"Working/")) 
-      
-      write.csv(samplelist,file=paste0(output,type,"/",type,"_TCGA_", n_sample,"_samplelist.csv"))
-      
-      ccfCountsMat <- ccfBandCountsMat[[1]]
-      ccfFractionMatrix <- ccfBandCountsMat[[2]]
-      ccfFractionRandomMatrix <-ccfBandCountsMat[[3]]
-      
-      save(ccfCountsMat,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_countMatrix.RData"))
-      write.csv( ccfCountsMat,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_countMatrix.csv"))
-      write.csv(ccfFractionMatrix ,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix.csv"))
-      write.csv(ccfFractionRandomMatrix,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_random.csv"))
-      write.csv(ccfFractionMatrix ,file=paste0(output,"Working/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix.csv"))
-      write.csv(ccfFractionRandomMatrix,file=paste0(output,"Working/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_random.csv"))
-    }
-}
-TypeCountBuildICGC <- function(cancertype,input_folder,output){
-  
-  x <- load(paste0(input_folder,"ICGC_summary.RData"))
-  post_summary <- get(x)
-  
   if (!dir.exists(output)) dir.create(output)
   
-
-  for (i in 1:length(cancertype)){
+  for (i in 1:ntype){
     
     library(NMF)
     library(dplyr)
     
     # get sample list for each type
-    type <- cancertype[i]
+    type <-  typelist[i]
     
     print(paste0("finish load ",i,'th type - ',type))
     
-    samplelist <- subset(post_summary,Types==type)$samplename
+    samplelist <- subset(post_summary,cancertype==type)$samplename
     n_sample <- length(samplelist)
     
-    ccfBandCountsMat <- CountMatBuild(samplelist)
-    
-    if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
-    
-    write.csv(samplelist,file=paste0(output,type,"/",type,"_ICGC_", n_sample,"_samplelist.csv"))
-    
-    ccfCountsMat <- ccfBandCountsMat[[1]]
-    ccfFractionMatrix <- ccfBandCountsMat[[2]]
-    ccfFractionRandomMatrix <-ccfBandCountsMat[[3]]
-    
-    save( ccfCountsMat,file=paste0(output,type,"/",type,"_ICGC_", n_sample,"_0-1_countMatrix.RData"))
-    write.csv( ccfCountsMat,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_countMatrix.csv"))
-    write.csv(ccfFractionMatrix ,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_fractionMatrix.csv"))
-    write.csv(ccfFractionRandomMatrix,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_fractionMatrix_random.csv"))
-  }
-}
-
-### --- Step3: Input rank estimate csv and plot ----- ####
-rank_estimate_plot <- function(rank_folder,output,cancertype){
-  library(ggplot2)
-  library(ggpubr)
-  library(gridExtra)
-  
-  for (i in 1:length(cancertype)){
-    
-    type <- cancertype[i]
-
-    estimate <- read.csv(file=paste0(rank_folder,type,".csv"))
-    estimate_random <- read.csv(file=paste0(rank_folder,type,"_random.csv"))
-    
-    estimate$type <- 'normal'
-    estimate_random$type <- 'random'
-    estimate_rank <- rbind(estimate,estimate_random)
-    rss_decrease <-  (estimate[order(estimate$rank),]$rss[1:10]-estimate[order(estimate$rank),]$rss[2:11]) - (estimate_random[order(estimate_random$rank),]$rss[1:10]-estimate_random[order(estimate_random$rank),]$rss[2:11])
-    write.csv(estimate_rank,paste0(output,type,'_estimate_rank_',Sys.Date(),'.csv'))
-    write.csv( rss_decrease,paste0(output,type,'_rss_decrease_',Sys.Date(),'.csv'))
-    
-    pdf(paste0(output,type,'_estimate_rank_',Sys.Date(),".pdf"),width=11,height=8)
-    p1 <- ggplot(data=estimate_rank,aes(x=rank,y=cophenetic,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-    p2 <- ggplot(data=estimate_rank,aes(x=rank,y=dispersion,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-    p3 <- ggplot(data=estimate_rank,aes(x=rank,y=evar,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-    p4 <- ggplot(data=estimate_rank,aes(x=rank,y=rss,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-    p5 <- ggplot(data=estimate_rank,aes(x=rank,y=euclidean,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-    p6 <- ggplot(data=estimate_rank,aes(x=rank,y=kl,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "bottom",axis.title.x=element_blank())
-    
-    g_legend<-function(a.gplot){
-      tmp <- ggplot_gtable(ggplot_build(a.gplot))
-      leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
-      legend <- tmp$grobs[[leg]]
-      return(legend)}
-    
-    mylegend<-g_legend(p6)
-    
-    print(grid.arrange(arrangeGrob(p1,p2,p3,p4,p5,p6+theme(legend.position = "none"),nrow=2),mylegend,nrow=2,top=paste0("NMF rank estimate for ",type," (rss_decrease: ",rss_decrease,")"),heights=c(10, 1)))
-    dev.off()
-    print(paste0("finish ",i," th file"))
-  }
-}
-
-### --- Step4: Run NMF based on chosen rank and output sig/expo ----- 
-
-# only plot for choosen types
-                          nmf_sig_plot <- function(type,MatType="count",input_folder,output,rank_summary){
-  
-  
-     file_path <- dir(paste0(input_folder,type,"/"))[grep(paste0(MatType,"Matrix.csv"),dir(paste0(input_folder,type,"/")))]
-     samplename_path <- dir(paste0(input_folder,type,"/"))[grep("samplelist",dir(paste0(input_folder,type,"/")))]
-     if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
-       
-     CountMat <- read.csv(file=paste0(input_folder,type,'/',file_path))[,-1]
-     samplename <- as.character(read.csv(file=paste0(input_folder,type,'/',samplename_path))[,-1])
-     n_sample <- length(samplename)
-     rank <- subset(rank_summary,TCGA.Study == type)$rank
-     
-     index <- sample(1:ncol(CountMat))
-     CountMat <- CountMat[,index]
-     samplename_random <- samplename[index]
-     
-     #preprocess for rows with all 0
-     index_p <- which(rowSums(CountMat)>0)
-     index_n <- which(!rowSums(CountMat)>0)
-     CountMat <- CountMat[which(rowSums(CountMat)>0),]
-     
-     #run NMF
-     res <- nmf(CountMat,rank,.opt='vp4')
-     sig <- as.data.frame(res@fit@W)
-     sig <- rbind(sig,matrix(0,nrow=length(index_n),ncol=ncol(sig)))
-     sig <- sig[c(index_p,index_n),]
-     
-     expo <- res@fit@H
-     expo <- as.matrix(expo)
-     
-     #sig plot
-     sig1 <- as.data.frame(t(apply(sig,2,function(x) x/sum(x))))
-     colnames(sig1) <- 1:ncol(sig1)
-     sig1$sig <- paste0("Signature ",1:rank)
-     xx <- melt(sig1,id=c("sig"))
-     
-     fills <- brewer.pal(8, "Set3")[c(1,3:8,2)]
-     
-     pdf(file=paste0(output,type,"/",type,"_",n_sample,"_sig_plot_",MatType,"_",Sys.Date(),".pdf"),height=3,width=12)
-     
-     p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=sig),stat='identity') + scale_fill_manual(values = fills)+ theme_grey()+
-       ggtitle(paste0("rank = ",rank,", cancertype = ",type, ", MatrixType = ",MatType )) + 
-       theme(legend.title = element_blank(),
-                legend.position = "none",
-                strip.text.x = element_text(color= "white",size=10),
-                panel.grid.minor.y = element_blank(),
-                axis.title.x = element_text(color = "grey20", size = 8),
-                axis.text.x = element_text(color = "grey20", size = 6),
-                axis.text.y = element_text(color = "grey20", size = 6),
-                plot.title = element_text(size= 10)) +
-       facet_grid(cols = vars(sig))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") 
-       
+    ccfBandCountsMat <- suppressWarnings(CountMatBuild(samplelist,input_folder = input_folder,upper=ccfupper))
+ 
+    if (!is.na(output)){
       
-     # theme(strip.background = element_blank(), strip.text  = element_text(color = 'white',size=8),
-     #       legend.title=element_blank(),legend.text=element_blank(),legend.position = "none",plot.title = element_text(size=10),
-     #       axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8),
-     #       axis.text.x = element_text(color = "grey20", size = 6),
-     #       axis.text.y = element_text(color = "grey20", size = 6))
-     
-     
-     g1 <- ggplot_gtable(ggplot_build(p1))
-     
-     strip_both <- which(grepl('strip-', g1$layout$name))
-     
-     k <- 1
-     for (i in strip_both) {
-       j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
-       g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- fills[k]
-       #g1$layout$clip[j3] <- "off"
-       k <- k+1
-     }
-     
-     grid.draw(g1)
-     
-     dev.off()
-     #output sig and expo
-     expo <- as.data.frame(t(expo))
-     expo <- cbind(expo,samplename_random)
-     colnames(expo)[1:rank] <- paste0("sig_",1:rank)
-     
-     save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
-     save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
-     save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
-     
-     return(list(g1,CountMat))
+        # create direction
+        if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
+        if (!dir.exists(paste0(output,"rank_estimate/"))) dir.create(paste0(output,"rank_estimate/"))  
+                                                                    
+        # Output Matrix 
+        output_format <- paste0(output,type,"/",type,"_", n_sample,"_0-",ccfupper)
+        output_rank <- paste0(output,"rank_estimate/",type,"_", n_sample,"_0-",ccfupper)
+      
+        write.csv(samplelist,file=paste0(output,type,"/",type,"_",n_sample,"_samplelist_",Sys.Date(),".csv"))
+        
+        save(ccfBandCountsMat[[1]],file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
+        save(ccfBandCountsMat[[2]],file=paste0(output_format,"_ccfCountsMatrix.random_",Sys.Date(),".RData"))
+        save(ccfBandCountsMat[[3]],file=paste0(output_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
+        save(ccfBandCountsMat[[4]],file=paste0(output_format,"_ccfFractionMatrix.random_",Sys.Date(),".RData"))
+        
+        # output to rank estimate folder
+        if (RankEstimateType=="fraction") {
+          write.csv(ccfBandCountsMat[[4]],file=paste0(output_rank,"_ccfFractionMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfBandCountsMat[[3]],file=paste0(output_rank,"_ccfFractionMatrix_",Sys.Date(),".csv"))
+        }
+        
+        if (RankEstimateType=="count") {
+          write.csv(ccfBandCountsMat[[2]],file=paste0(output_rank,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfBandCountsMat[[1]],file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".csv"))
+        }
+    }
   }
-                                   
-# overall plot for all given type
-nmf_sig_all_plot <- function(cancertype,input_folder,output,rank_summary) {
+}
+                                        
+## Step 5: NMF for Each type
+sig_plot <- function(sig){
   library(gridExtra)
   library(ggplot2)
   library(RColorBrewer)
   library(grid)
   library(dplyr)
-  library(NMF)
   library(reshape2)
   library(cowplot)
+  library(magrittr)
   
-  i <- 1
+  xx <- as.data.frame(t(apply(sig,2,function(x) x/sum(x)))) %>%
+    set_colnames(1:ncol(.)) %>%
+    mutate(signature=paste0("Signature ",1:nrow(.))) %>%
+    melt(.,id=c("signature"))
+  
+  fills <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+  
+  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=signature),stat='identity') + scale_fill_manual(values = fills)+ theme_grey()+
+    #ggtitle(paste0("rank = ",rank,", cancertype = ",type, ", MatrixType = ",MatType )) + 
+    theme(legend.title = element_blank(),
+          legend.position = "none",
+          strip.text.x = element_text(color= "white",size=10),
+          panel.grid.minor.y = element_blank(),
+          axis.title.x = element_text(color = "grey20", size = 8),
+          axis.text.x = element_text(color = "grey20", size = 6),
+          axis.text.y = element_text(color = "grey20", size = 6),
+          plot.title = element_text(size= 10)) +
+    facet_grid(cols = vars(signature))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") 
+  
+  g1 <- ggplot_gtable(ggplot_build(p1))
+  
+  strip_both <- which(grepl('strip-', g1$layout$name))
+  
+  k <- 1
+  for (i in strip_both) {
+    j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- fills[k]
+    #g1$layout$clip[j3] <- "off"
+    k <- k+1
+  }
+  grid.draw(g1)
+  #output sig and expo
+  return(g1)
+}
+   
+nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank_summary){
+     library(magrittr)
+  
+     type_path <- paste0(input_folder,type,"/")
+     if (MatType=="fraction"){
+     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir( type_path))])
+     } 
+  
+     if (MatType=="count"){
+     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir( type_path))])
+     }
+     
+     samplename_path <- paste0(input_folder,type,"/",dir(type_path)[grep("samplelist",dir(type_path))]) 
+     
+     if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
+       
+     load(file=file_path)
+     samplename <- as.character(read.csv(file=samplename_path)[,-1])
+     n_sample <- length(samplename)
+     
+     #format rank summary file
+     rank <- as.numeric(subset(rank_summary,Type == type)$Rank)
+     
+     if (exists("ccfFractionMatrix")) ccfMat <- ccfFractionMatrix
+     if (exists("ccfCountsMatrix")) ccfMat <- ccfCountsMatrix
+     
+     index <- sample(1:ncol(ccfMat))
+     ccfMat <- ccfMat[,index]
+     samplename_random <- samplename[index]
+     
+     #preprocess for rows with all 0
+     index_p <- which(rowSums(ccfMat)>0)
+     index_n <- which(!rowSums(ccfMat)>0)
+     ccfMat <- ccfMat[which(rowSums(ccfMat)>0),]
+     
+     #run NMF
+     res <- nmf(ccfMat,rank,.opt='vp4')
+     sig <- as.data.frame(matrix(0,nrow=length(index_p)+length(index_n),ncol=ncol(res@fit@W)))
+     sig[c(index_p),] <- as.data.frame(res@fit@W) %>%
+       set_colnames(paste0("sig_",1:ncol(.)))
+     
+     expo <- as.matrix(res@fit@H)
+     
+     #sig plot
+     
+     p_sig <- sig_plot(sig)
+   
+     #output sig and expo
+     expo <- as.data.frame(t(expo)) %>%
+        cbind(.,samplename_random) 
+     colnames(expo)[1:rank] <- paste0("sig_",1:rank)
+     
+     save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
+     save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
+     save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
+   
+     return(list(p_sig,n_sample))
+}                         
+                              
+nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
+  library(gridExtra)
+  library(ggplot2)
+  library(grid)
+  library(dplyr)
+  library(reshape2)
+  library(cowplot)
+  library(NMF)
+  
+  if (!dir.exists(output)) dir.create(output)
+  
+  colnames(rank_summary) <- c("Type","Rank")
+  cancertype <- as.character(rank_summary$Type)
+ 
+  #i <- NULL
   for (i in 1:length(cancertype)) {
     type <- cancertype[i]
+   
+    print(paste0("load ",i,"th type - ",type))
     
-    nmf_count <- nmf_sig_plot(type,input_folder=input_folder,output=output,rank_summary=rank_summary)
-    p_count <- nmf_count[[1]]
-    CountMat <- nmf_count[[2]]
-    n_sample <- ncol(CountMat)
-    p_fraction <- nmf_sig_plot(type,MatType="fraction",input_folder=input_folder,output=output,rank_summary=rank_summary)[[1]]
-    
-    p <- plot_grid(p_count,p_fraction, align="V",ncol=2)
-    table <- t(as.data.frame(round(quantile(colSums(CountMat),c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1)),2)))
-    table1 <- tableGrob(table,rows=NULL,theme=ttheme_default(colhead=list(fg_params = list(parse=TRUE)),base_size = 8))
-    title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",ncol(CountMat)," samples "),fontface='bold')
+    nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank_summary=rank_summary)
+    p_sig <- nmf_result[[1]]
+    n_sample <- nmf_result[[2]]
   
-    commands <- paste0("p",i," <- plot_grid(title,table1,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
+    p <- plot_grid(p_sig)
+    title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",n_sample," samples "),fontface='bold')
+  
+    commands <- paste0("p",i," <- plot_grid(title,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
     eval(parse(text=commands))
+  }
+    #plot_grid(p1)
+    ntype <- length(cancertype)
+    n_file <-  ntype %% 8
     
-    }
-    
-    n_pdf <- (length(cancertype) %/% 8)+1
+    if (n_file==0) n_pdf <- (ntype %/% 8) else
+      n_pdf <- (ntype %/% 8)+1
     
     for (i in 1:n_pdf){
-      commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-7),"-",8*i,"_',Sys.Date(),'.pdf'),height=25,width=12)")
-      if (i != n_pdf) commands2 <- paste0("g",i,"<- plot_grid(",paste0("p",(8*i-7):(8*i),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") else
-      {
-        n_file <-  length(cancertype) %% 8
-        commands2 <- paste0("g",i," <- plot_grid(",paste0("p",(8*i-7):(8*i-8+n_file),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))")
-        paste0("p",(8*i-7):(8*i-8+n_file),seq=",")
+     
+      if (i != n_pdf) {
+        commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-7),"-",8*i,"_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("g",i,"<- plot_grid(",paste0("p",(8*i-7):(8*i),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") 
+      } else {
+        
+        commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-8),"-",8*i-8+n_file,"_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("g",i," <- plot_grid(",paste0("p",(8*i-8):(8*i-8+n_file),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))")
       }
       
       commands3 <- paste0("print(g",i,")")
@@ -304,8 +365,84 @@ nmf_sig_all_plot <- function(cancertype,input_folder,output,rank_summary) {
       eval(parse(text=commands3))
       eval(parse(text=commands4))
     }
-    
-    return(list(g1,g2,g3,g4))
+  
+    return( eval(parse(text=paste0("list(n_pdf,",paste0("g",1:n_pdf,collapse=","),")"))))
 }
-                                   
-### --- Step5: Association Analysis ----- 
+
+## Step 6: Combine sig and run Hierarchical cluster
+combine_sig_nmf <- function(input_folder,cancertype){
+  
+  for (i in 1:length(cancertype)){
+    type <- cancertype[i]
+    print(paste0("load ",i," th type : ",type))
+    
+    sig_file <- dir(paste0(input_folder,type,"/"))[grep("sig",dir(paste0(input_folder,type,"/")))]
+    load(paste0(input_folder,type,"/",sig_file))
+  
+    colnames(sig) <- paste0(type,"_sig",1:ncol(sig))
+    if (i==1) combine_sig <- sig else
+       combine_sig <- cbind(combine_sig,sig)
+  }  
+   save(combine_sig,file=paste0(input_folder,"combine_sig_",Sys.Date(),".RData"))
+   return(combine_sig)
+}
+                              
+## Step 7: test the number of cluster
+ hc_cluster_test <- function(data,methods,distance,min.nc = 2,max.nc = 10){
+  library(NbClust)
+  
+  getmode <- function(v) {
+    uniqv <- unique(v)
+    uniqv[which.max(tabulate(match(v, uniqv)))]
+  }
+  
+  tabla = as.data.frame(matrix(ncol = length(distance), nrow = length(methods)))
+    names(tabla) = distance
+    
+    for (j in 2:length(distance)){
+      for(i in 1:length(methods)){
+        nb = NbClust(data,distance = distance[j],
+                     min.nc = min.nc, max.nc = max.nc, 
+                     method = "complete", index =methods[i])
+        tabla[i,j] = nb$Best.nc[1]
+        tabla[i,1] = methods[i]
+      }}
+  
+  tabla <- rbind(tabla,c("Most_common",apply(tabla[,2:5],2,getmode)))
+  
+  return(tabla)
+} 
+
+## Step 8: run Hierarchical clustering and plot (save to 8.HC_consensus)
+hc_consensus <- function(combine_sig,cluster,output)  {
+  library("RColorBrewer")
+  library("pheatmap")
+  library(factoextra)
+  
+  breaksList = seq(0, 0.4, by = 0.01)
+  col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
+    
+  ## set `cutree_cols` based on suggested cluster number 
+  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols="euclidean", cluster_rows=F,filename=paste0(output,"/hc_heatmap.pdf"))
+ 
+  sig_label <- as.data.frame(cutree(out$tree_col,k=6)) %>%
+      set_colnames("cluster") %>%
+      mutate(sig=rownames(.))
+    
+  ## Compute consensu signatures for each cluster
+  consensus_sig <- as.data.frame(t(combine_sig)) %>%
+      mutate(sig=rownames(.)) %>%
+      left_join(.,sig_label,by="sig") %>%
+      group_by(cluster) %>%
+      mutate(sig=NULL) %>%
+      summarise_all(mean) 
+  
+  save(consensus_sig,file=paste0(output,"/consensus_sig.RData"))
+  consensus_sig <- apply(t(consensus_sig[,2:101]),2,as.numeric)
+  
+  p1 <- plot_grid(sig_plot(consensus_sig))
+  save_plot(paste0(output,"/consensus_sig.pdf"),p1,base_asp = cluster)
+ 
+  return(consensus_sig)
+}
+  
