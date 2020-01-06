@@ -76,7 +76,7 @@ load_ccf <- function(samplename,input){
     }
   
  ## Step2: Build post summary for ccube samples 
-Build_post_summary <- function(input,output=NA){
+Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
   library(magrittr)
   library(dplyr)
   
@@ -115,6 +115,11 @@ Build_post_summary <- function(input,output=NA){
      
   post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
   
+  if (mergeType==T & !is.na(typefile)) {
+    cancertype <- read.csv(file=typefile)[,-1] 
+    colnames(cancertype)[1] <- "samplename"
+    post_summary <- left_join(post_summary, cancertype,by="samplename")
+  }
   
   if (!is.na(output)) {
     write.csv(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".csv"))
