@@ -344,11 +344,12 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
   
   if (!dir.exists(output)) dir.create(output)
   
-  colnames(rank_summary) <- c("Type","Rank")
-  cancertype <- as.character(rank_summary$Type)
+  colnames(rank_summary) <- c("cancertype","rank")
+  cancertype <- as.character(rank_summary$cancertype)
  
-  #i <- NULL
+  j = 0
   for (i in 1:length(cancertype)) {
+    tryCatch({
     type <- cancertype[i]
    
     print(paste0("load ",i,"th type - ",type))
@@ -359,16 +360,19 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
   
     p <- plot_grid(p_sig)
     title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",n_sample," samples "),fontface='bold')
-  
-    commands <- paste0("p",i," <- plot_grid(title,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
+    j <- j+1
+    commands <- paste0("p",j," <- plot_grid(title,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
     eval(parse(text=commands))
+    },error = function(e) print(paste0("Failed run NMF on this type")))
   }
     #plot_grid(p1)
-    ntype <- length(cancertype)
-    n_file <-  ntype %% 8
     
-    if (n_file==0) n_pdf <- (ntype %/% 8) else
-      n_pdf <- (ntype %/% 8)+1
+    ntype <- length(cancertype)
+    
+    n_file <-  j %% 8
+    
+    if (n_file==0) n_pdf <- (j %/% 8) else
+      n_pdf <- (j %/% 8)+1
     
     for (i in 1:n_pdf){
      
@@ -396,6 +400,7 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
 combine_sig_nmf <- function(input_folder,cancertype){
   
   for (i in 1:length(cancertype)){
+  tryCatch({
     type <- cancertype[i]
     print(paste0("load ",i," th type : ",type))
     
@@ -405,6 +410,7 @@ combine_sig_nmf <- function(input_folder,cancertype){
     colnames(sig) <- paste0(type,"_sig",1:ncol(sig))
     if (i==1) combine_sig <- sig else
        combine_sig <- cbind(combine_sig,sig)
+  },error=function(e) print("Fail load this type"))
   }  
    save(combine_sig,file=paste0(input_folder,"combine_sig_",Sys.Date(),".RData"))
    return(combine_sig)
@@ -437,16 +443,17 @@ combine_sig_nmf <- function(input_folder,cancertype){
 } 
 
 ## Step 8: run Hierarchical clustering and plot (save to 8.HC_consensus)
-hc_consensus <- function(combine_sig,cluster,output)  {
+hc_consensus <- function(combine_sig,cluster,output,distance="euclidean")  {
   library("RColorBrewer")
   library("pheatmap")
-  library(factoextra)
+  #library(factoextra)
   
-  breaksList = seq(0, 0.4, by = 0.01)
+  upper = quantile(combine_sig,0.95)
+  breaksList = seq(0, upper, by = 0.01)
   col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
     
   ## set `cutree_cols` based on suggested cluster number 
-  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols="euclidean", cluster_rows=F,filename=paste0(output,"/hc_heatmap.pdf"))
+  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols=distance, cluster_rows=F,filename=paste0(output,"/hc_heatmap.pdf"))
  
   sig_label <- as.data.frame(cutree(out$tree_col,k=6)) %>%
       set_colnames("cluster") %>%
