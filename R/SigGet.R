@@ -417,7 +417,7 @@ combine_sig_nmf <- function(input_folder,cancertype){
 }
                               
 ## Step 7: test the number of cluster
- hc_cluster_test <- function(data,methods,distance,min.nc = 2,max.nc = 10){
+hc_cluster_test <- function(data,methods,distance,min = 2,max = 10){
   library(NbClust)
   
   getmode <- function(v) {
@@ -427,23 +427,25 @@ combine_sig_nmf <- function(input_folder,cancertype){
   
   tabla = as.data.frame(matrix(ncol = length(distance), nrow = length(methods)))
     names(tabla) = distance
-    
-    for (j in 2:length(distance)){
+  
+  for (j in 2:length(distance))
       for(i in 1:length(methods)){
+        tryCatch({
         nb = NbClust(data,distance = distance[j],
-                     min.nc = min.nc, max.nc = max.nc, 
+                     min.nc = min, max.nc = max, 
                      method = "complete", index =methods[i])
         tabla[i,j] = nb$Best.nc[1]
         tabla[i,1] = methods[i]
-      }}
+      },error=function(e) print("error"))
+    } 
   
   tabla <- rbind(tabla,c("Most_common",apply(tabla[,2:5],2,getmode)))
   
   return(tabla)
-} 
+}
 
 ## Step 8: run Hierarchical clustering and plot (save to 8.HC_consensus)
-hc_consensus <- function(combine_sig,cluster,output,distance="euclidean")  {
+hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidean")  {
   library("RColorBrewer")
   library("pheatmap")
   #library(factoextra)
@@ -472,7 +474,16 @@ hc_consensus <- function(combine_sig,cluster,output,distance="euclidean")  {
   
   p1 <- plot_grid(sig_plot(consensus_sig))
   save_plot(paste0(output,"/consensus_sig.pdf"),p1,base_asp = cluster)
- 
+  
+  if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+  if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
+  library(YAPSA)
+    
+  exposure <- YAPSA::LCD(ccfMatrix,consensus_sig) 
+  exposure <- as.data.frame(t(exposure)) %>%
+    set_colnames(paste0("sig_",1:ncol()))
+  save(exposure,file=paste0(output,"/lcd_exposure.RData"))
+  
   return(consensus_sig)
 }
   
