@@ -145,7 +145,7 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
     ssm <- load_ccf(sample_name,input=input_folder)
     if (!is.na(genelist)) ssm <- subset(ssm,SYMBOL %in% genelist)
     matchBandCountDf <- data.frame(Var1=as.character(1:rows))
-    matchBandCountDf <- left_join(matchBandCountDf,as.data.frame(table(findInterval(ssm$ccube_ccf,ccfBand))),stringAsFactors = F,by="Var1")
+    matchBandCountDf <- suppressWarnings(left_join(matchBandCountDf,as.data.frame(table(findInterval(ssm$ccube_ccf,ccfBand))),stringAsFactors = F,by="Var1"))
     ccfBandCountsMat[,j] <- matchBandCountDf$Freq
   }
   # delete the final row
@@ -173,7 +173,7 @@ TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEsti
   
   ntype <- length(typelist)
   
-  print(paste0("Construct ccf count matrix for ",length(ntype)," types (> 30 samples)"))
+  print(paste0("Construct ccf count matrix for ",ntype," types (> 30 samples)"))
 
   if (!dir.exists(output)) dir.create(output)
   
@@ -193,7 +193,12 @@ TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEsti
     ccfBandCountsMat <- suppressWarnings(CountMatBuild(samplelist,input_folder = input_folder,upper=ccfupper))
  
     if (!is.na(output)){
-      
+        
+        ccfCountMatrix <-ccfBandCountsMat[[1]]
+        ccfCountsMatrix.random <- ccfBandCountsMat[[2]]
+        ccfFractionMatrix <- ccfBandCountsMat[[3]]
+        ccfFractionMatrix.random <- ccfBandCountsMat[[4]]
+        
         # create direction
         if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
         if (!dir.exists(paste0(output,"rank_estimate/"))) dir.create(paste0(output,"rank_estimate/"))  
@@ -204,20 +209,20 @@ TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEsti
       
         write.csv(samplelist,file=paste0(output,type,"/",type,"_",n_sample,"_samplelist_",Sys.Date(),".csv"))
         
-        save(ccfBandCountsMat[[1]],file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
-        save(ccfBandCountsMat[[2]],file=paste0(output_format,"_ccfCountsMatrix.random_",Sys.Date(),".RData"))
-        save(ccfBandCountsMat[[3]],file=paste0(output_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
-        save(ccfBandCountsMat[[4]],file=paste0(output_format,"_ccfFractionMatrix.random_",Sys.Date(),".RData"))
+        save(ccfCountMatrix,file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
+        save(ccfCountsMatrix.random,file=paste0(output_format,"_ccfCountsMatrix.random_",Sys.Date(),".RData"))
+        save(ccfFractionMatrix,file=paste0(output_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
+        save(ccfFractionMatrix.random,file=paste0(output_format,"_ccfFractionMatrix.random_",Sys.Date(),".RData"))
         
         # output to rank estimate folder
         if (RankEstimateType=="fraction") {
-          write.csv(ccfBandCountsMat[[4]],file=paste0(output_rank,"_ccfFractionMatrix.random_",Sys.Date(),".csv"))
-          write.csv(ccfBandCountsMat[[3]],file=paste0(output_rank,"_ccfFractionMatrix_",Sys.Date(),".csv"))
+          write.csv(ccfFractionMatrix.random,file=paste0(output_rank,"_ccfFractionMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfFractionMatrix,file=paste0(output_rank,"_ccfFractionMatrix_",Sys.Date(),".csv"))
         }
         
         if (RankEstimateType=="count") {
-          write.csv(ccfBandCountsMat[[2]],file=paste0(output_rank,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
-          write.csv(ccfBandCountsMat[[1]],file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".csv"))
+          write.csv(ccfCountsMatrix.random,file=paste0(output_rank,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfCountMatrix,file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".csv"))
         }
     }
   }
