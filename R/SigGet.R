@@ -9,6 +9,15 @@ file_format <- function(filename=filename,samplenamecol){
   return(filename)
 }
 
+file_format <- function(filename=filename,samplenamecol){
+  names <- colnames(filename)
+  names[samplenamecol] <- "samplename"
+  names -> colnames(filename)
+  filename$samplename <- substr(filename$samplename,1,12)
+  filename$samplename <- gsub("[.]","-",filename$samplename)
+  return(filename)
+}
+
 load_ccf <- function(samplename,input){
   Check <- ArgumentCheck::newArgCheck()
   suppressWarnings(rm(ssm,res,ccubeRes))
@@ -16,8 +25,10 @@ load_ccf <- function(samplename,input){
   format1 <- paste0(input,samplename,"/ccube_result.RData")
   format2 <- paste0(input,samplename,"/ccube_res_v0.3_final_new.RData")
   format3 <- paste0(input,samplename,"/ccube_res_run1.RData")
+  format4 <- paste0(input,samplename,"/ccubeRes.RData")
   
-  if (file.exists(format1 )) load(format1)  
+  if (file.exists(format4 )) load(format4)  
+    else if (file.exists(format1 )) load(format1)  
      else if(file.exists(format2)) load(format2) 
       else if(file.exists(format3)) load(format3) 
         else{
@@ -26,9 +37,9 @@ load_ccf <- function(samplename,input){
           argcheck = Check)
           }
   
-  if (exists("ssm")) return(ssm) 
-    else if (exists("res")) return(res$ssm) 
-      else if (exists("ccubeRes")) return(ccubeRes$ssm)
+  if (exists("ccubeRes")) return(ccubeRes$ssm)  else
+     if (exists("res")) return(res$ssm) else
+       if (exists("ssm")) return(ssm)
 }
 
 ## Step1: Ccube input format
@@ -71,21 +82,22 @@ Build_post_summary <- function(input,output=NA){
   
   sample_list <- dir(input)
   
-  colnames <- c("samplename","cancertype","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5","purity","ccube_purity")
+  colnames <- c("samplename","Tumor_Sample_Barcode","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","purity","ccube_purity","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5")
 
   # if (i==1) cat("Start building post summary for",length(sample_list),"files","\n")
   # if (i%%1000==0) print(paste0("----- Finish loading ",i," files -----"))
-  
+
   post_summary_analyse <- function(samplename){
+      library(dplyr)
       suppressWarnings(rm(ssm))
       ssm <- load_ccf(samplename,input=input)
       ccf <- unique(ssm$ccube_ccf_mean)
       ccf_mean_order <- sort(ccf,decreasing = T)
       Ncluster <- length(ccf)
-    
+      
       post_summary <- data.frame(samplename <- samplename) %>%
         mutate(
-          cancertype = ifelse(exists("ssm$cancertype"),as.character(unique(ssm$cancertype)),NA),
+          Tumor_Sample_Barcode = unique(ssm$Tumor_Sample_Barcode),
           n_mutations = nrow(ssm),
           ccf_01_percentage = mean(ssm$ccube_ccf<=1),
           ccf_02_percentage = mean(ssm$ccube_ccf<=2),
@@ -102,6 +114,7 @@ Build_post_summary <- function(input,output=NA){
      }
      
   post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
+  
   
   if (!is.na(output)) {
     write.csv(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".csv"))
