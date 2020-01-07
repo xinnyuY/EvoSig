@@ -24,22 +24,20 @@ load_ccf <- function(samplename,input){
   
   format1 <- paste0(input,samplename,"/ccube_result.RData")
   format2 <- paste0(input,samplename,"/ccube_res_v0.3_final_new.RData")
-  format3 <- paste0(input,samplename,"/ccube_res_run1.RData")
   format4 <- paste0(input,samplename,"/ccubeRes.RData")
   
   if (file.exists(format4 )) load(format4)  
     else if (file.exists(format1 )) load(format1)  
-     else if(file.exists(format2)) load(format2) 
-      else if(file.exists(format3)) load(format3) 
+     else if (file.exists(format2)) load(format2) 
         else{
           ArgumentCheck::addError(
           msg = "No file has been loaded",
           argcheck = Check)
           }
   
-  if (exists("ccubeRes")) return(ccubeRes$ssm)  else
+  if (exists("ssm")) return(ssm) else
      if (exists("res")) return(res$ssm) else
-       if (exists("ssm")) return(ssm)
+       if (exists("ccubeRes")) return(ccubeRes$ssm) 
 }
 
 ## Step1: Ccube input format
@@ -84,9 +82,10 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
   
   colnames <- c("samplename","Tumor_Sample_Barcode","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","purity","ccube_purity","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5")
 
-  # if (i==1) cat("Start building post summary for",length(sample_list),"files","\n")
-  # if (i%%1000==0) print(paste0("----- Finish loading ",i," files -----"))
-
+   if (i==1) cat("Start building post summary for",length(sample_list),"files","\n")
+   if (i%%1000==0) print(paste0("----- Finish loading ",i," files -----"))
+  
+  
   post_summary_analyse <- function(samplename){
       library(dplyr)
       suppressWarnings(rm(ssm))
@@ -95,9 +94,10 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
       ccf_mean_order <- sort(ccf,decreasing = T)
       Ncluster <- length(ccf)
       
+      
       post_summary <- data.frame(samplename <- samplename) %>%
         mutate(
-          Tumor_Sample_Barcode = unique(ssm$Tumor_Sample_Barcode),
+          Tumor_Sample_Barcode = ifelse(exists("ssm$Tumor_Sample_Barcode"),unique(ssm$Tumor_Sample_Barcode),NA),
           n_mutations = nrow(ssm),
           ccf_01_percentage = mean(ssm$ccube_ccf<=1),
           ccf_02_percentage = mean(ssm$ccube_ccf<=2),
@@ -112,13 +112,14 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
         ) %>% set_colnames(colnames)
       return(post_summary)
      }
-     
+    
   post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
   
   if (mergeType==T & !is.na(typefile)) {
     cancertype <- read.csv(file=typefile)[,-1] 
     colnames(cancertype)[1] <- "samplename"
-    post_summary <- left_join(post_summary, cancertype,by="samplename")
+    post_summary <- left_join(post_summary, cancertype,by="samplename") 
+    if ("Types" %in% colnames(post_summary)) colnames(post_summary)[which(colnames(post_summary)=="Types")] <- "cancertype"
   }
   
   if (!is.na(output)) {
@@ -127,7 +128,7 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
   }
   return(post_summary)
 }
-
+       
  ## Step2: Construct ccf matrix
  CountMatBuild <- function(samplelist,upper,input_folder,genelist=NA){
   library(dplyr)
