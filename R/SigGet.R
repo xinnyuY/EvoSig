@@ -506,7 +506,7 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   ## set `cutree_cols` based on suggested cluster number 
   out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols=distance, cluster_rows=F,filename=paste0(output,"/",distance,"_hc_heatmap.pdf"),clustering_method = "ward.D2")
  
-  sig_label <- as.data.frame(cutree(out$tree_col,k=6)) %>%
+  sig_label <- as.data.frame(cutree(out$tree_col,k=cluster)) %>%
       set_colnames("cluster") %>%
       mutate(sig=rownames(.))
     
@@ -528,10 +528,11 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
   library(YAPSA)
   
-  consensus_sig <- t(consensus_sig[,2:101])
+  ccfMatrix[is.na(ccfMatrix)] = 0
   exposure <- YAPSA::LCD(ccfMatrix,consensus_sig) 
+  table(rowSums(ccfMatrix)>0)
   exposure <- as.data.frame(t(exposure)) %>%
-    set_colnames(paste0("sig_",1:ncol()))
+    set_colnames(paste0("sig_",1:ncol(.)))
   save(exposure,file=paste0(output,"/",distance,"_lcd_exposure.RData"))
   
   return(consensus_sig)
