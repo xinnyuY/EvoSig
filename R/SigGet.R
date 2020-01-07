@@ -82,10 +82,6 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
   
   colnames <- c("samplename","Tumor_Sample_Barcode","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","purity","ccube_purity","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5")
 
-   if (i==1) cat("Start building post summary for",length(sample_list),"files","\n")
-   if (i%%1000==0) print(paste0("----- Finish loading ",i," files -----"))
-  
-  
   post_summary_analyse <- function(samplename){
       library(dplyr)
       suppressWarnings(rm(ssm))
