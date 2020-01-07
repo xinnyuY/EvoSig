@@ -504,7 +504,7 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
     
   ## set `cutree_cols` based on suggested cluster number 
-  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols=distance, cluster_rows=F,filename=paste0(output,"/",distance,"_hc_heatmap.pdf"),clustering_method = "ward.D2")
+  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols=distance, cluster_rows=F,filename=paste0(output,"/",distance,"_",cluster,"_hc_heatmap.pdf"),clustering_method = "ward.D2")
  
   sig_label <- as.data.frame(cutree(out$tree_col,k=cluster)) %>%
       set_colnames("cluster") %>%
@@ -518,11 +518,11 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
       mutate(sig=NULL) %>%
       summarise_all(mean) 
   
-  save(consensus_sig,file=paste0(output,"/",distance,"_consensus_sig.RData"))
+  save(consensus_sig,file=paste0(output,"/",distance,"_",cluster,"_consensus_sig.RData"))
   consensus_sig <- apply(t(consensus_sig[,2:101]),2,as.numeric)
   
   p1 <- plot_grid(sig_plot(consensus_sig))
-  save_plot(paste0(output,"/",distance,"_consensus_sig.pdf"),p1,base_asp = cluster)
+  save_plot(paste0(output,"/",distance,"_",cluster,"_consensus_sig.pdf"),p1,base_asp = cluster)
   
   if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
   if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
@@ -533,7 +533,7 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   table(rowSums(ccfMatrix)>0)
   exposure <- as.data.frame(t(exposure)) %>%
     set_colnames(paste0("sig_",1:ncol(.)))
-  save(exposure,file=paste0(output,"/",distance,"_lcd_exposure.RData"))
+  save(exposure,file=paste0(output,"/",distance,"_",cluster,"_lcd_exposure.RData"))
   
   return(consensus_sig)
 }
