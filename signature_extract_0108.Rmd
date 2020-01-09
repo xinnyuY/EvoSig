@@ -50,6 +50,58 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Step 7: test the number of cluster
 ## Step 8: run Hierarchical clustering and plot (save to 8.HC_consensus)
 ```{r}
+---
+title: "Evolutionary Dynamics"
+author: xinyu yang
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Pre-step1: load functions
+
+## Basic function
+- `load_ccf(sample,input)`
+- `file_format(filename,samplenamecol`
+## Step1: Ccube input format 
+`ParseSnvCnaPcawgFormat(ssm,cna)`
+## Step2: Build post summary for ccube samples
+`Build_post_summary(input,output=NA)`
+-input : Input Folders which stored Ccube results (Ccube_folder)
+-output : output folder to store the post summary file, only return `post_summary` if `output=NA`
+## Step3: Construct ccf matrix
+`CountMatBuild(samplelist,genelist=NA,rows=101,input_folder)` | Build CCF Matrix for chosen samples with bin width 0.01
+- rows: specicfy rows, eg. if we choose ccf band 0-1, set rows=101
+- upper: specify ccf upper limit
+- input_folder: folder stored CCF files (Ccube_folder)
+`TypeMatrixBuild(post_summary,input_folder,output,ccfupper=1,RankEstimateType="fraction")`
+- post_summary : obstained from step 1
+- input_folder : Input Folders which stored Ccube results (Ccube_folder)
+- output : output folder to store CCF matrix (Matrix_folder)
+- ccfupper: specify ccf upper limit 
+- RankEstimateType : output file type to do further rank estimate analysis
+## Step 4: Rank estimate (python) + plot(R)
+`rank_estimate_plot(outputFolder)`: plot rank estimate csv in outputFolder and save the plot there
+## Step 5: NMF for Each type
+`sig_plot` : plot sig matrix
+`nmf_sig_plot_type`|`sig_plot`: Run NMF for specified cancertype with specified rank 
+- type: specify cancertype
+- input_folder: folder stored CCF matrix (Matrix_folder)
+- output : folder to store NMF results (NMF_folder)
+- rank_summary: summary of rank estimate results (visual inspection)
+`nmf_sig_all_plot`|`nmf_sig_plot_type`: output all sig plot for all cancertype
+- input_folder: Folders stored Matrix ('/CountMatrix/2019-12-28/')
+- output: Folders stored nmf results ('/NMF_results/2019-12-28/')
+- rank_summary: summary of rank estimate results (visual inspection,location "/rank_summary.csv")
+## Step 6: Combine sig and run Hierarchical cluster
+`combine_nmf(input_folder,cancertype,return="sig"/"expo")`: output combined sig/expo matrix
+- input_folder: folders stores NMF result (NMF_folder)
+## Step 7: test the number of cluster
+## Step 8: run Hierarchical clustering and plot (save to 8.HC_consensus)
+```{r}
 file_format <- function(filename=filename,samplenamecol){
   names <- colnames(filename)
   names[samplenamecol] <- "samplename"
@@ -70,14 +122,14 @@ load_ccf <- function(samplename,input){
   
   if (file.exists(format4 )) load(format4)  
     else if (file.exists(format1 )) load(format1)  
-     else if(file.exists(format2)) load(format2) 
+     else if( file.exists(format2)) load(format2) 
       else if(file.exists(format3)) load(format3) 
         else{
           ArgumentCheck::addError(
           msg = "No file has been loaded",
           argcheck = Check)
           }
-  
+
   if (exists("ccubeRes")) return(ccubeRes$ssm)  else
      if (exists("res")) return(res$ssm) else
        if (exists("ssm")) return(ssm)
@@ -171,6 +223,7 @@ Build_post_summary <- function(input,output=NA,mergeType= F, typefile="NA"){
 }
 
 # Build CCF Matrix for chosen samples within region 0-upper
+
 CountMatBuild <- function(samplelist,upper,input_folder,genelist=NA){
   library(dplyr)
   
@@ -194,13 +247,20 @@ CountMatBuild <- function(samplelist,upper,input_folder,genelist=NA){
   ccfBandCountsMat <- ccfBandCountsMat[-rows,]
   ccfBandCountsMat[is.na(ccfBandCountsMat)] <- 0
   
-  if (n_sample==1) {ccfBandFractionMat <- ccfBandCountsMat/sum(ccfBandCountsMat)
-                    ccfBandFractionMat.random <- ccfBandFractionMat[sample(1:(rows-1))]
-                    ccfBandCountsMat.random <- ccfBandCountsMat[sample(1:(rows-1))]} else 
-    {ccfBandFractionMat <- apply(ccfBandCountsMat,2,function(x) x/sum(x))
-     ccfBandCountsMat.random <- NMF::randomize(ccfBandCountsMat)
-     ccfBandFractionMat.random <- apply(ccfBandCountsMat.random,2,function(x) x/sum(x))
-     }
+  if (n_sample==1) {
+    ccfBandFractionMat <- ccfBandCountsMat/sum(ccfBandCountsMat)
+    #ccfBandCountsMat.random <- ccfBandCountsMat[sample(1:(rows-1))]
+    ccfBandCountsMat.random <- sample(ccfBandCountsMat,(rows-1),replace=TRUE,prob=ccfBandFractionMat)
+    ccfBandFractionMat.random <- ccfBandCountsMat.random/sum(ccfBandCountsMat.random)
+    
+    } else {
+      
+    ccfBandFractionMat <- apply(ccfBandCountsMat,2,function(x) x/sum(x))
+    #ccfBandCountsMat.random <- NMF::randomize(ccfBandCountsMat)
+    ccfBandCountsMat.random <- apply(ccfBandCountsMat,2,function(x) sample(x,(rows-1),replace=TRUE,prob= x/sum(x)))
+    ccfBandFractionMat.random <- apply(ccfBandCountsMat.random,2,function(x) x/sum(x))
+    
+    }
     
   return(list(ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat,ccfBandFractionMat.random))
 }
@@ -221,15 +281,17 @@ TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEsti
   print(paste0("Construct ccf count matrix for ",ntype," types (> 30 samples)"))
 
   if (!dir.exists(output)) dir.create(output)
-  
+  #i <-1
   for (i in 1:ntype){
+    
+    tryCatch({
     
     library(NMF)
     library(dplyr)
     
     # get sample list for each type
     type <-  typelist[i]
-    
+    if (dir.exists(paste0(output,type,"/"))) next else {
     print(paste0("finish load ",i,'th type - ',type))
     
     samplelist <- subset(post_summary,cancertype==type)$samplename
@@ -269,8 +331,10 @@ TypeMatrixBuild <- function(post_summary,input_folder,output,ccfupper=1,RankEsti
           write.csv(ccfCountsMatrix.random,file=paste0(output_rank,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
           write.csv(ccfCountMatrix,file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".csv"))
         }
-    }
-  }
+    
+    }}
+  },error=function(e) print("error!"))}
+  
 }
 
 
@@ -367,68 +431,57 @@ sig_plot <- function(sig){
   return(g1)
 }
 
-nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank_summary){
+
+nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank_summary,seed,num_cores,nmfmethod){
      library(magrittr)
   
      type_path <- paste0(input_folder,type,"/")
-     if (MatType=="fraction"){
-     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir( type_path))])
-     } 
-  
-     if (MatType=="count"){
-     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir( type_path))])
-     }
-     
+     if (MatType=="fraction") {file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir( type_path))])} 
+     if (MatType=="count") {file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir( type_path))])}
      samplename_path <- paste0(input_folder,type,"/",dir(type_path)[grep("samplelist",dir(type_path))]) 
      
      if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
        
      load(file=file_path)
-     samplename <- as.character(read.csv(file=samplename_path)[,-1])
-     n_sample <- length(samplename)
-     
-     #format rank summary file
-     rank <- as.numeric(subset(rank_summary,cancertype == type)$rank)
-     
      if (exists("ccfFractionMatrix")) ccfMat <- ccfFractionMatrix
      if (exists("ccfCountsMatrix")) ccfMat <- ccfCountsMatrix
      
-     index <- sample(1:ncol(ccfMat))
-     ccfMat <- ccfMat[,index]
-     samplename_random <- samplename[index]
+     samplename <- as.character(read.csv(file=samplename_path)[,-1])
+     n_sample <- length(samplename)
      
-     #preprocess for rows with all 0
+     # get rank
+     rank <- as.numeric(subset(rank_summary,cancertype == type)$rank)
+    
+     # delete rows with all 0 and record row index
      index_p <- which(rowSums(ccfMat)>0)
      index_n <- which(!rowSums(ccfMat)>0)
      ccfMat <- ccfMat[which(rowSums(ccfMat)>0),]
      
+     # run NMF
+     res <- nmf(ccfMat,rank,.opt=paste0('p',num_cores),nrun=1000,seed=seed,method=nmfmethod)
      
-     #run NMF
-     res <- nmf(ccfMat,rank,.opt='vp4')
+     # add rows with all zero back 
      sig <- as.data.frame(matrix(0,nrow=length(index_p)+length(index_n),ncol=ncol(res@fit@W)))
      sig[c(index_p),] <- as.data.frame(res@fit@W) %>%
        set_colnames(paste0("sig_",1:ncol(.)))
      
      expo <- as.matrix(res@fit@H)
      
-     #sig plot
-     
+     # plot signatures
      p_sig <- sig_plot(sig)
    
-     #output sig and expo
-     expo <- as.data.frame(t(expo)) %>%
-        cbind(.,samplename_random) 
-     colnames(expo)[1:rank] <- paste0("sig_",1:rank)
+     # add samplename to exposure 
+     expo <- as.data.frame(t(expo)) %>% set_colnames(paste0("sig_",1:ncol(.))) %>% cbind(.,samplename) 
      
+     # output sig and expo
      save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
      save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
      save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
      
-     
      return(list(p_sig,n_sample))
 }
 
-nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
+nmf_sig_all_plot <- function(input_folder,output,rank_summary,seed=123456,num_cores=4,nmfmethod="brunet") {
   library(gridExtra)
   library(ggplot2)
   library(grid)
@@ -449,7 +502,7 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
    
     print(paste0("load ",i,"th type - ",type))
     
-    nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank_summary=rank_summary)
+    nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank_summary=rank_summary,seed=seed,num_cores=num_cores,nmfmethod=nmfmetho)
     p_sig <- nmf_result[[1]]
     n_sample <- nmf_result[[2]]
   
@@ -538,7 +591,7 @@ hc_cluster_test <- function(data,methods,distance,min = 2,max = 10){
 }
 
 ## Step 8: run Hierarchical clustering and plot (save hc_heatmap, consensus sig and plot to output folder)
-hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidean")  {
+hc_consensus <- function(combine_sig,cluster,output,ccfMatrix,distance="euclidean")  {
   library("RColorBrewer")
   library("pheatmap")
   #library(factoextra)
@@ -571,11 +624,12 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
   if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
   library(YAPSA)
-  
+ 
   load(paste0(HC_folder,dir(HC_folder)[grep("samples",dir(HC_folder))]))
+  
   ccfMatrix[is.na(ccfMatrix)] = 0
-  idx_random <- sample(1:nrow(ccfMatrix))
-  ccfMatrix <- ccfMatrix[idx_random,]
+  idx_random <- sample(1:ncol(ccfMatrix))
+  ccfMatrix <- ccfMatrix[,idx_random]
   samplelist <- post_summary$samplename[idx_random]
   
   write.csv(samplelist,file=paste0(HC_folder,distance,"_",cluster,"_sample_list_random.csv"))
@@ -592,12 +646,16 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
 
 ```
 
+# load library
+```{r}
+library(dplyr)
+library(ggplot2)
+```
 
 # Main
 
 ```{r}
 ## pre-step: set directory and Initialization
-  library(readxl)
   
   rm(ls())
   
@@ -606,7 +664,8 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   
   Ccube_folder <- "1.Ccube/TCGA_0106/"
   Postsummary_folder <- "2.post_summary/"
-  Matrix_folder <- paste0("3.ccfMatrix/")
+  #Matrix_folder <- paste0("3.ccfMatrix/")
+  Matrix_folder <- paste0("3.ccfMatrix_sample/")
   rank_estimate_folder <- paste0(Matrix_folder,"rank_estimate/")
   rank_result_folder <-  paste0("4.rank_result/")
   nmf_folder <- "5.NMF_result/"
@@ -619,7 +678,8 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   
   Ccube_folder <- "1.Ccube/ICGC/"
   Postsummary_folder <- "2.post_summary/"
-  Matrix_folder <- paste0("3.ccfMatrix/")
+  #Matrix_folder <- paste0("3.ccfMatrix/")
+  Matrix_folder <- paste0("3.ccfMatrix_sample/")
   rank_estimate_folder <- paste0(Matrix_folder,"rank_estimate/")
   rank_result_folder <-  paste0("4.rank_result/")
   nmf_folder <- "5.NMF_result/"
@@ -648,7 +708,6 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
       ## summary plot
       xx <- post_summary %>% group_by(cancertype) %>% summarize(n=n())
       
-      library(ggplot2)
       ggplot(data=xx,aes(x=cancertype,y=n)) +
         geom_bar(position = 'dodge', stat='identity') +
         geom_text(aes(label=n), position=position_dodge(width=0.9), vjust=-0.25)
@@ -716,10 +775,20 @@ hc_consensus <- function(combine_sig,cluster,ccfMatrix,output,distance="euclidea
   save(ccfMat,file=paste0(Matrix_folder,"CCFMatrix_overall.RData"))
   #load(file=paste0(Matrix_folder,"CCFMatrix_overall.RData"))
   
-  consensus_sig_eu <- hc_consensus(combine_sig,cluster=3,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="euclidean")
-  consensus_sig_correlation <- hc_consensus(combine_sig,cluster=3,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="correlation")
+  consensus_sig_eu <- hc_consensus(combine_sig,cluster=2,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="euclidean")
+  consensus_sig_correlation <- hc_consensus(combine_sig,cluster=2,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="correlation")
 
 ```
+
+
+
+
+
+
+
+
+
+
 
 
 
