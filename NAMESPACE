@@ -1,0 +1,12 @@
+exportPattern("^[[:alpha:]]+")
+
+
+#’ @import dplyr
+#’ @import ggplot2
+
+#’ @import RColorBrewer
+#’ @import NMF 
+#’ @importFrom reshape2 melt
+#’ @importFrom psych corr.test
+#’ @importFrom plyr ddply
+#’ @importFrom magrittr set_columns
