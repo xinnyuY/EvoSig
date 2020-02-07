@@ -1,0 +1,2059 @@
+########################################### Function ###################################
+library(gridExtra)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(dplyr)
+library(NMF)
+library(reshape2)
+library(cowplot)
+### Basic Function
+
+# Unify TCGA sample barcode
+
+file_format <- function(filename=filename,samplenamecol){
+  names <- colnames(filename)
+  names[samplenamecol] <- "samplename"
+  names -> colnames(filename)
+  filename$samplename <- substr(filename$samplename,1,12)
+  filename$samplename <- gsub("[.]","-",filename$samplename)
+  return(filename)
+}
+
+
+# Load ssm file 
+load_ccf <- function(sample,input){
+  Check <- ArgumentCheck::newArgCheck()
+  if (file.exists(paste0(input,sample,"/ccube_result.RData"))) load(paste0(input,sample,"/ccube_result.RData")) else {
+    if (file.exists(paste0(input,sample,"/ccube_res_v0.3_final_new.RData"))) load(paste0(input,sample,"/ccube_res_v0.3_final_new.RData")) else
+      if (file.exists(paste0(input,sample,"/ccube_res_run1.RData"))) load(paste0(input,sample,"/ccube_res_run1.RData")) else
+        ArgumentCheck::addError(
+          msg = "No file has been loaded",
+          argcheck = Check)}
+  if (exists("ssm")) return(list(ssm,"ssm")) else
+    if (exists("res")) return(list(res,"res")) else
+      if (exists("ccubeRes")) return(list(ccubeRes),"ccubeRes") 
+}
+
+# Consensus Color Palette
+my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+
+### --- Step pre: post_summary ----- ####
+input <- ICGC_input
+
+# Build post-summary for all CCF files
+Build_post_summary <- function(input,output){
+  
+  sample_list <- dir(input)
+  post_summary <- data.frame(matrix(nrow=length(sample_list),ncol=14))
+  colnames(post_summary) <- c("samplename","n_variant","ccf_0.95","ccf_0.99","ccf_max","N_counts","Nsubclones","Vclones","Vsubclone1","Vsubclone2","Vsubclone3","Vsubclone4","purity","ccube_purity")
+  samplename <- type <- Nsubclones <- Vclones <-  NULL
+  Vsubclone1 <- Vsubclone2 <- Vsubclone3 <- Vsubclone4 <- NULL
+  i <- ssm <- res <- ccubeRes <- NULL
+  
+  #i <-1
+  for (i in 1:length(sample_list)){
+    
+    samplename <- sample_list[i]
+    if (i %% 100 ==0) print(paste0("finish loading ",i," th file"))
+    
+    varname <- load_ccf(samplename,input=input)[[2]]
+    if (varname=="ssm") ssm <- load_ccf(samplename,input=input)[[1]] else
+      ssm <- load_ccf(samplename,input=input)[[1]][["ssm"]]
+    
+    ssm <- subset(ssm,ccube_ccf<=1 & ccube_ccf>=0)
+    n_variant <- nrow(ssm)
+    
+    if (nrow(ssm) >0) {
+      
+      ccf_0.95 <- quantile(ssm$ccube_ccf,0.95)
+      ccf_0.99 <- quantile(ssm$ccube_ccf,0.99)
+      ccf_max <- max(ssm$ccube_ccf)
+      ccf <- unique(ssm$ccube_ccf_mean)
+      ccf_n <- length(ccf)
+      ccf_order <- sort(ccf,decreasing = T)
+      purity <- ssm$purity
+      ccube_purity <- ssm$ccube_purity
+      if (ccf_n==0) {post_summary[i,] <- c(as.character(samplename),n_variant,ccf_max,0,0,0,0,0,0,0,purity,ccube_purity) 
+      } else {
+        if (ccf_n==1) Nsubclones=0 else Nsubclones= ccf_n -1}
+      Vclones = ccf_order[1]
+      N_counts = sum(ssm$total_counts)
+      if (Nsubclones>=1) Vsubclone1 = ccf_order[2] else Vsubclone1 =0
+      if (Nsubclones>=2) Vsubclone2 = ccf_order[3] else Vsubclone2 =0
+      if (Nsubclones>=3) Vsubclone3 = ccf_order[4] else Vsubclone3 =0
+      if (Nsubclones>=4) Vsubclone4 = ccf_order[5] else Vsubclone4 =0
+      post_summary[i,] <- c(as.character(samplename),n_variant,ccf_0.95,ccf_0.99,ccf_max,N_counts,Nsubclones,Vclones,Vsubclone1,Vsubclone2,Vsubclone3,Vsubclone4,purity,ccube_purity)
+    }
+  }
+  
+  write.csv(post_summary,file=paste0(output,"TCGA_post_summary_",length(sample_list),"_",Sys.Date(),".csv"))
+  
+  return(post_summary)
+}
+
+# Build TCGA summary file for chosen samples with minimun mutation counts
+tcga_summary_build <- function(mincount,summary_file,immune_measure_file,output) {
+  library(readxl)
+  tcga_summary <- read.csv(summary_file)[,-1]
+  tcga_summary <- subset(tcga_summary,n_variant>=mincount)
+  immu_summary <- read_excel(immune_measure_file)
+  immu_summary <- file_format(immu_summary,1)
+  tcga_summary <- left_join(tcga_summary,immu_summary,by="samplename")
+  
+  write.csv(tcga_summary,file=paste0(output,"TCGA_summary_",nrow(tcga_summary),"_mincount",mincount,"_",Sys.Date(),".csv"))
+  return(tcga_summary)
+}  
+
+
+### --- Step1: Construct Count Matrix by type ----- ####
+
+# Construct ccf distribution count matrix for given samples
+sample_name <- "TCGA-02-2466"
+input_folder <- count_folder
+genelist <- syncope_genelist1
+
+subset(ssm,SYMBOL %in% c("FLG","CLCA1"))
+CountMatBuild <- function(samplelist,genelist=NA,rows=101,input_folder){
+  library(dplyr)
+  
+  n_sample <- length(samplelist)
+  ccfBand <- seq(0,1,length.out = rows)
+  ccfBandCountsMat <- matrix(nrow=length(ccfBand),ncol=n_sample)
+  
+  if (n_sample ==0) stop("The number of choosen sample is 0")
+  
+  for (j in 1:n_sample){
+    sample_name <- as.character(samplelist[j])
+    ssm <- load_ccf(sample_name,input=input_folder)[['ssm']]
+    if (!is.na(genelist)) ssm <- subset(ssm,SYMBOL %in% genelist)
+    matchBandCountDf <- data.frame(Var1=as.character(1:rows))
+    matchBandCountDf <- left_join(matchBandCountDf,as.data.frame(table(findInterval(ssm$ccube_ccf,ccfBand))),stringAsFactors = F,by="Var1")
+    ccfBandCountsMat[,j] <- matchBandCountDf$Freq
+  }
+  # delete the final row
+  ccfBandCountsMat <- ccfBandCountsMat[-rows,]
+  ccfBandCountsMat[is.na(ccfBandCountsMat)] <- 0
+  
+  
+  if (n_sample==1) {ccfBandFractionMat <- ccfBandCountsMat/sum(ccfBandCountsMat)
+                    ccfBandFractionMat.random <- ccfBandFractionMat[sample(1:(rows-1))]
+                    ccfBandCountsMat.random <- ccfBandCountsMat[sample(1:(rows-1))]} else 
+    {ccfBandFractionMat <- apply(ccfBandCountsMat,2,function(x) x/sum(x))
+     ccfBandCountsMat.random <- NMF::randomize(ccfBandCountsMat)
+     ccfBandFractionMat.random <- apply(ccfBandCountsMat.random,2,function(x) x/sum(x))
+     }
+    
+  return(list(ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat,ccfBandFractionMat.random))
+}
+
+
+# Construct ccf distribution count matrix for given cancer types
+
+
+TypeCountBuildTCGA <- function(cancertype,post_summary,input_folder,output=NA,typeVar){
+   
+    for (i in 1:length(cancertype)){
+      
+      library(NMF)
+      library(dplyr)
+      
+      # get sample list for each type
+      type <- cancertype[i]
+      
+      print(paste0("finish load ",i,'th type - ',type))
+      
+      commands <- paste0(" samplelist <- as.character(subset(post_summary,",typeVar,"=='",type,"')$samplename)")
+      eval(parse(text=commands))
+      
+      n_sample <- length(samplelist)
+  
+      ccfBandCountsMat <- CountMatBuild(samplelist,input_folder = input_folder)
+    
+      
+      ccfCountsMat <- ccfBandCountsMat[[1]]
+      ccfCountsRandomMat <- ccfBandCountsMat[[2]]
+      ccfFractionMatrix <- ccfBandCountsMat[[3]]
+      ccfFractionRandomMatrix <-ccfBandCountsMat[[4]]
+      
+      
+      if (!is.na(output)) {
+          if (!dir.exists(output)) dir.create(output)
+          if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
+          if (!dir.exists(paste0(output,"Working/"))) dir.create(paste0(output,"Working/")) 
+        
+          write.csv(samplelist,file=paste0(output,type,"/",type,"_TCGA_", n_sample,"_samplelist.csv"))
+          save(ccfCountsMat,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_countMatrix_",Sys.Date(),".RData"))
+          write.csv( ccfCountsMat,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_countMatrix_",Sys.Date(),".csv"))
+          write.csv( ccfCountsRandomMat,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_countMatrix_random_",Sys.Date(),".csv"))
+          write.csv(ccfFractionMatrix ,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_",Sys.Date(),".csv"))
+          write.csv(ccfFractionRandomMatrix,file=paste0(output,type,"/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_random_",Sys.Date(),".csv"))
+          write.csv(ccfFractionMatrix ,file=paste0(output,"Working/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_",Sys.Date(),".csv"))
+          write.csv(ccfFractionRandomMatrix,file=paste0(output,"Working/",type,"_TCGA_",n_sample,"_0-1_fractionMatrix_random_",Sys.Date(),".csv"))
+      }
+      
+    }
+    return(ccfCountsMat)
+}
+
+TypeCountBuildTCGA_consensus <- function(post_summary,input_folder,output,rows=101){
+    library(NMF)
+    library(dplyr)
+  
+    if (!dir.exists(output)) dir.create(output)
+   
+    samplelist <- post_summary$samplename
+    n_sample <- length(samplelist)
+    
+    ccfBandCountsMat <- CountMatBuild(samplelist,input_folder=input_folder,rows=rows)
+    
+    if (!dir.exists(paste0(output,"consensus/"))) dir.create(paste0(output,"consensus/"))  
+    if (!dir.exists(paste0(output,"Working/"))) dir.create(paste0(output,"Working/")) 
+    
+    write.csv(samplelist,file=paste0(output,"consensus/TCGA_", n_sample,"_samplelist.csv"))
+    
+    ccfCountsMat <- ccfBandCountsMat[[1]]
+    ccfCountsRandomMat <- ccfBandCountsMat[[2]]
+    ccfFractionMatrix <- ccfBandCountsMat[[3]]
+    ccfFractionRandomMatrix <-ccfBandCountsMat[[4]]
+    
+    save(ccfCountsMat,file=paste0(output,"consensus/TCGA_",n_sample,"_0-1_countMatrix_",Sys.Date(),".RData"))
+    write.csv(ccfCountsMat,file=paste0(output,"consensus/TCGA_",n_sample,"_0-1_countMatrix_",Sys.Date(),".csv"))
+    write.csv(ccfCountsRandomMat,file=paste0(output,"consensus/TCGA_",n_sample,"_0-1_countMatrix_random_",Sys.Date(),".csv"))
+    write.csv(ccfFractionMatrix ,file=paste0(output,"consensus/TCGA_",n_sample,"_0-1_fractionMatrix_",Sys.Date(),".csv"))
+    write.csv(ccfFractionRandomMatrix,file=paste0(output,"consensus/TCGA_",n_sample,"_0-1_fractionMatrix_random_",Sys.Date(),".csv"))
+    write.csv(ccfFractionMatrix ,file=paste0(output,"Working/consensus_TCGA_",n_sample,"_0-1_fractionMatrix_",Sys.Date(),".csv"))
+    write.csv(ccfFractionRandomMatrix,file=paste0(output,"Working/consensus_TCGA_",n_sample,"_0-1_fractionMatrix_random_",Sys.Date(),".csv"))
+}
+
+TypeCountBuildICGC <- function(cancertype,input_folder,output){
+  
+  x <- load(paste0(input_folder,"ICGC_summary.RData"))
+  post_summary <- get(x)
+  
+  if (!dir.exists(output)) dir.create(output)
+  
+
+  for (i in 1:length(cancertype)){
+    
+    library(NMF)
+    library(dplyr)
+    
+    # get sample list for each type
+    type <- cancertype[i]
+    
+    print(paste0("finish load ",i,'th type - ',type))
+    
+    samplelist <- subset(post_summary,Types==type)$samplename
+    n_sample <- length(samplelist)
+    
+    ccfBandCountsMat <- CountMatBuild(samplelist)
+    
+    if (!dir.exists(paste0(output,type,"/"))) dir.create(paste0(output,type,"/"))  
+    
+    write.csv(samplelist,file=paste0(output,type,"/",type,"_ICGC_", n_sample,"_samplelist.csv"))
+    
+    ccfCountsMat <- ccfBandCountsMat[[1]]
+    ccfFractionMatrix <- ccfBandCountsMat[[2]]
+    ccfFractionRandomMatrix <-ccfBandCountsMat[[3]]
+    
+    save( ccfCountsMat,file=paste0(output,type,"/",type,"_ICGC_", n_sample,"_0-1_countMatrix.RData"))
+    write.csv( ccfCountsMat,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_countMatrix.csv"))
+    write.csv(ccfFractionMatrix ,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_fractionMatrix.csv"))
+    write.csv(ccfFractionRandomMatrix,file=paste0(output,type,"/",type,"_ICGC_",n_sample,"_0-1_fractionMatrix_random.csv"))
+  }
+}
+
+
+### --- Step2: Run NMF rank estimate using Python
+
+
+### --- Step3: Input rank estimate csv and plot ----- ####
+rank_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/rank_estimate_plot/9.20_TCGA_type_0-1_100_mincount50_minsample30/"
+estimate_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Rank_estimate/9.20_TCGA_type_0-1_100_mincount50_minsample30/"
+
+rank_estimate_plot <- function(rank_folder,output,cancertype){
+  library(ggplot2)
+  library(ggpubr)
+  library(gridExtra)
+  
+  for (i in 1:length(cancertype)){
+    
+    type <- cancertype[i]
+
+    estimate <- read.csv(file=paste0(rank_folder,type,"_.csv"))
+    estimate_random <- read.csv(file=paste0(rank_folder,type,"_random.csv"))
+    
+    if (!dir.exists(output)) dir.create(output)
+    
+    estimate$type <- 'normal'
+    estimate_random$type <- 'random'
+    estimate_rank <- rbind(estimate,estimate_random)
+    rss_decrease <-  (estimate[order(estimate$rank),]$rss[1:10]-estimate[order(estimate$rank),]$rss[2:11]) - (estimate_random[order(estimate_random$rank),]$rss[1:10]-estimate_random[order(estimate_random$rank),]$rss[2:11])
+    write.csv(estimate_rank,paste0(output,type,'_estimate_rank_',Sys.Date(),'.csv'))
+    write.csv( rss_decrease,paste0(output,type,'_rss_decrease_',Sys.Date(),'.csv'))
+    
+    pdf(paste0(output,type,'_estimate_rank_',Sys.Date(),".pdf"),width=11,height=8)
+    p1 <- ggplot(data=estimate_rank,aes(x=rank,y=cophenetic,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+    p2 <- ggplot(data=estimate_rank,aes(x=rank,y=dispersion,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+    p3 <- ggplot(data=estimate_rank,aes(x=rank,y=evar,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+    p4 <- ggplot(data=estimate_rank,aes(x=rank,y=rss,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+    p5 <- ggplot(data=estimate_rank,aes(x=rank,y=euclidean,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+    p6 <- ggplot(data=estimate_rank,aes(x=rank,y=kl,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "bottom",axis.title.x=element_blank())
+    
+    g_legend<-function(a.gplot){
+      tmp <- ggplot_gtable(ggplot_build(a.gplot))
+      leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+      legend <- tmp$grobs[[leg]]
+      return(legend)}
+    
+    mylegend<-g_legend(p6)
+    
+    print(grid.arrange(arrangeGrob(p1,p2,p3,p4,p5,p6+theme(legend.position = "none"),nrow=2),mylegend,nrow=2,top=paste0("NMF rank estimate for ",type," (rss_decrease: ",rss_decrease,")"),heights=c(10, 1)))
+    dev.off()
+    print(paste0("finish ",i," th file"))
+  }
+
+}
+
+##########################################################################
+### --- Step4: Run NMF based on chosen rank and output sig/expo ----- ####
+input_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount50_minsample30/"
+output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.20_TCGA_type_0-1_100_mincount50_minsample30/"
+rank_summary <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_summary_5985_mincount50_2019-09-20.csv")[,-1]
+
+type <-"ACC"
+#nmf_sig_plot("COAD",input_folder= input_folder,rank_summary=rank_summary,output=output)
+
+sig_summary <- nmf_sig_all_plot(cancertype=cancertype,input_folder= input_folder,rank_summary=rank_summary,output=output)
+
+
+NMF_sig_plot_countMat <- function(Matrix,rank) {
+  
+  CountMat <- Matrix
+  index <- sample(1:ncol(CountMat))
+  CountMat <- CountMat[,index]
+  samplename_random <- samplename[index]
+  
+  #preprocess for rows with all 0
+  index_p <- which(rowSums(CountMat)>0)
+  index_n <- which(!rowSums(CountMat)>0)
+  CountMat <- CountMat[which(rowSums(CountMat)>0),]
+  
+  res <- nmf(CountMat,rank,.opt='vp4')
+  sig <- as.data.frame(res@fit@W)
+  sig <- rbind(sig,matrix(0,nrow=length(index_n),ncol=ncol(sig)))
+  
+  expo <- res@fit@H
+  expo <- as.matrix(expo)
+  
+  #sig plot
+  sig1 <- as.data.frame(t(apply(sig,2,function(x) x/sum(x))))
+  colnames(sig1) <- 1:ncol(sig1)
+  sig1$sig <- paste0("Signature ",1:rank)
+  xx <- melt(sig1,id=c("sig"))
+  
+  fills <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+  
+  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=sig),stat='identity')  + 
+    theme(legend.title = element_blank(),
+          legend.position = "none",
+          strip.text.x = element_text(color= "white",size=10),
+          panel.grid.minor.y = element_blank(),
+          axis.title.x = element_text(color = "grey20", size = 8),
+          axis.text.x = element_text(color = "grey20", size = 6),
+          axis.text.y = element_text(color = "grey20", size = 6),
+          plot.title = element_text(size= 10)) +
+    facet_grid(cols = vars(sig))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") 
+  
+  return(p1)
+}
+# only plot for choosen types
+
+sig_plot <- function(sig){
+  library(gridExtra)
+  library(ggplot2)
+  library(RColorBrewer)
+  library(grid)
+  library(dplyr)
+  library(NMF)
+  library(reshape2)
+  library(cowplot)
+  
+  sig <- as.data.frame(t(apply(sig,2,function(x) x/sum(x))))
+  colnames(sig) <- 1:ncol(sig)
+  sig$signature <- paste0("Signature ",1:nrow(sig))
+  xx <- melt(sig,id=c("signature"))
+  
+  fills <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+  
+  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=signature),stat='identity') + scale_fill_manual(values = fills)+ theme_grey()+
+    #ggtitle(paste0("rank = ",rank,", cancertype = ",type, ", MatrixType = ",MatType )) + 
+    theme(legend.title = element_blank(),
+          legend.position = "none",
+          strip.text.x = element_text(color= "white",size=10),
+          panel.grid.minor.y = element_blank(),
+          axis.title.x = element_text(color = "grey20", size = 8),
+          axis.text.x = element_text(color = "grey20", size = 6),
+          axis.text.y = element_text(color = "grey20", size = 6),
+          plot.title = element_text(size= 10)) +
+    facet_grid(cols = vars(signature))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") 
+  
+  
+  g1 <- ggplot_gtable(ggplot_build(p1))
+  
+  strip_both <- which(grepl('strip-', g1$layout$name))
+  
+  k <- 1
+  for (i in strip_both) {
+    j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- fills[k]
+    #g1$layout$clip[j3] <- "off"
+    k <- k+1
+  }
+  
+  grid.draw(g1)
+  #output sig and expo
+  return(g1)
+  
+}
+
+nmf_sig_plot_type <- function(type,MatType="count",input_folder,output,rank_summary){
+  
+  file_path <- paste0(input_folder,type,"/",dir(paste0(input_folder,type,"/"))[grep("ccfFractionMatrix.RData",dir(paste0(input_folder,type,"/")))])
+  samplename_path <- paste0(input_folder,type,"/",dir(paste0(input_folder,type,"/"))[grep("samplelist",dir(paste0(input_folder,type,"/")))])
+  
+  if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
+  
+  load(file=file_path)
+  samplename <- as.character(read.csv(file=samplename_path)[,-1])
+  n_sample <- length(samplename)
+  
+  #format rank summary file
+  rank <- as.numeric(subset(rank_summary,Type == type)[,2])
+  
+  if (exists("ccfFractionMatrix")) CountMat <- ccfFractionMatrix
+  
+  index <- sample(1:ncol(CountMat))
+  CountMat <- CountMat[,index]
+  samplename_random <- samplename[index]
+  
+  #preprocess for rows with all 0
+  index_p <- which(rowSums(CountMat)>0)
+  index_n <- which(!rowSums(CountMat)>0)
+  CountMat <- CountMat[which(rowSums(CountMat)>0),]
+  
+  #run NMF
+  res <- nmf(CountMat,rank,.opt='vp4')
+  sig <- as.data.frame(res@fit@W)
+  sig <- rbind(sig,matrix(0,nrow=length(index_n),ncol=ncol(sig)))
+  sig <- sig[c(index_p,index_n),]
+  
+  expo <- res@fit@H
+  expo <- as.matrix(expo)
+  
+  #sig plot
+  p_sig <- sig_plot(sig)
+  
+  #output sig and expo
+  expo <- as.data.frame(t(expo))
+  expo <- cbind(expo,samplename_random)
+  colnames(expo)[1:rank] <- paste0("sig_",1:rank)
+  
+  save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
+  save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
+  save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
+  
+  return(list(CountMat,p_sig))
+}
+  
+# overall plot for all given type
+output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30/"
+input_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/11.7_ICGC_type_0-1_100_minsample30/"
+rank_summary <- rank_estimate
+i <-1
+nmf_sig_all_plot <- function(cancertype,input_folder,output,rank_summary) {
+  library(gridExtra)
+  library(ggplot2)
+  library(RColorBrewer)
+  library(grid)
+  library(dplyr)
+  library(NMF)
+  library(reshape2)
+  library(cowplot)
+  
+  if (!dir.exists(output)) dir.create(output)
+  
+  for (i in 1:length(cancertype)) {
+    type <- cancertype[i]
+    print(paste0("load ",i," th type - ",type))
+    
+    nmf<- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank_summary=rank_summary)
+    nmf_fraction <- nmf[[1]]
+    n_sample <- ncol(nmf_fraction)
+    p_fraction <- nmf[[2]]
+    
+    # p <- plot_grid(p_count,p_fraction, align="V",ncol=2)
+    # table <- t(as.data.frame(round(quantile(colSums(CountMat),c(0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1)),2)))
+    # table1 <- tableGrob(table,rows=NULL,theme=ttheme_default(colhead=list(fg_params = list(parse=TRUE)),base_size = 8))
+    title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",ncol(CountMat)," samples "),fontface='bold')
+  
+    commands <- paste0("p",i," <- plot_grid(title,p_fraction,align='V',ncol=1,rel_heights = c(0.1,0.65))")
+    eval(parse(text=commands))
+    
+    }
+    n_file <-  length(cancertype) %% 8
+    if (n_file==0) n_pdf <- (length(cancertype) %/% 8) else
+      n_pdf <- (length(cancertype) %/% 8)+1
+    
+    for (i in 1:n_pdf){
+     
+      if (i != n_pdf) {
+        commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-7),"-",8*i,"_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("g",i,"<- plot_grid(",paste0("p",(8*i-7):(8*i),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") 
+      } else {
+        
+        commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-8),"-",8*i-8+n_file,"_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("g",i," <- plot_grid(",paste0("p",(8*i-8):(8*i-8+n_file),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))")
+      }
+      
+      commands3 <- paste0("print(g",i,")")
+      commands4 <- "dev.off()"
+      eval(parse(text=commands1))
+      eval(parse(text=commands2))
+      eval(parse(text=commands3))
+      eval(parse(text=commands4))
+    }
+   
+    return( eval(parse(text=paste0("list(n_pdf,",paste0("g",1:n_pdf,collapse=","),")"))))
+}
+
+nmf_consensus_sig_plot <- function(type,MatType="count",input_folder,output,rank_summary){
+  
+  
+  file_path <- dir(paste0(input_folder,type,"/"))[grep(paste0(MatType,"Matrix.csv"),dir(paste0(input_folder,type,"/")))]
+  samplename_path <- dir(paste0(input_folder,type,"/"))[grep("samplelist",dir(paste0(input_folder,type,"/")))]
+  if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
+  
+  CountMat <- read.csv(file=paste0(input_folder,type,'/',file_path))[,-1]
+  samplename <- as.character(read.csv(file=paste0(input_folder,type,'/',samplename_path))[,-1])
+  n_sample <- length(samplename)
+  rank <- subset(rank_summary,TCGA.Study == type)$rank
+  
+  index <- sample(1:ncol(CountMat))
+  CountMat <- CountMat[,index]
+  samplename_random <- samplename[index]
+  
+  #preprocess for rows with all 0
+  index_p <- which(rowSums(CountMat)>0)
+  index_n <- which(!rowSums(CountMat)>0)
+  CountMat <- CountMat[which(rowSums(CountMat)>0),]
+  
+  #run NMF
+  res <- nmf(CountMat,rank,.opt='vp4')
+  sig <- as.data.frame(res@fit@W)
+  sig <- rbind(sig,matrix(0,nrow=length(index_n),ncol=ncol(sig)))
+  sig <- sig[c(index_p,index_n),]
+  
+  expo <- res@fit@H
+  expo <- as.matrix(expo)
+  
+  #sig plot
+  sig1 <- as.data.frame(t(apply(sig,2,function(x) x/sum(x))))
+  colnames(sig1) <- 1:ncol(sig1)
+  sig1$sig <- paste0("Signature ",1:rank)
+  xx <- melt(sig1,id=c("sig"))
+  
+  fills <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+  
+  pdf(file=paste0(output,type,"/",type,"_",n_sample,"_sig_plot_",MatType,"_",Sys.Date(),".pdf"),height=3,width=12)
+  
+  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=sig),stat='identity') + scale_fill_manual(values = fills)+ theme_grey()+
+    ggtitle(paste0("rank = ",rank,", cancertype = ",type, ", MatrixType = ",MatType )) + 
+    theme(legend.title = element_blank(),
+          legend.position = "none",
+          strip.text.x = element_text(color= "white",size=10),
+          panel.grid.minor.y = element_blank(),
+          axis.title.x = element_text(color = "grey20", size = 8),
+          axis.text.x = element_text(color = "grey20", size = 6),
+          axis.text.y = element_text(color = "grey20", size = 6),
+          plot.title = element_text(size= 10)) +
+    facet_grid(cols = vars(sig))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") 
+  
+  
+  # theme(strip.background = element_blank(), strip.text  = element_text(color = 'white',size=8),
+  #       legend.title=element_blank(),legend.text=element_blank(),legend.position = "none",plot.title = element_text(size=10),
+  #       axis.title.x = element_text(size = 8), axis.title.y = element_text(size = 8),
+  #       axis.text.x = element_text(color = "grey20", size = 6),
+  #       axis.text.y = element_text(color = "grey20", size = 6))
+  
+  
+  g1 <- ggplot_gtable(ggplot_build(p1))
+  
+  strip_both <- which(grepl('strip-', g1$layout$name))
+  
+  k <- 1
+  for (i in strip_both) {
+    j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- fills[k]
+    #g1$layout$clip[j3] <- "off"
+    k <- k+1
+  }
+  
+  grid.draw(g1)
+  
+  dev.off()
+  #output sig and expo
+  expo <- as.data.frame(t(expo))
+  expo <- cbind(expo,samplename_random)
+  colnames(expo)[1:rank] <- paste0("sig_",1:rank)
+  
+  save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
+  save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
+  save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
+  
+  return(list(g1,CountMat))
+}
+
+##########################################################################
+### --- Step4: plot single samples ----- ####
+# "TCGA-2A-A8VO" - almost near 1
+
+ccf_plot <- function(sample,input,flip=FALSE,legend=TRUE,xlab=TRUE,ylab=TRUE){
+  library(ggplot2)
+  library(RColorBrewer)
+  
+  my_color<-brewer.pal(8, "Set3")[c(1,6,3:5,7:8,2)]
+  
+  
+  ssm <- load_ccf(sample,input=input)[['ssm']]
+  n_ccf <- length(unique(ssm$ccube_ccf_mean))
+  ssm$cluster <-  factor(ssm$ccube_ccf_mean,labels=1:n_ccf)
+  ssm <- subset(ssm,ccube_ccf<=1)
+  
+  p1 <-ggplot(ssm,aes(ssm$ccube_ccf,fill=cluster,color=cluster)) + 
+    geom_histogram(breaks=seq(0,1,by=0.01),position="identity",alpha=0.8)+
+    xlab("Cancer Cell Fraction")+ ggtitle(paste0(sample," | ", nrow(ssm)," mutations"))+
+    ylab("Mutation Counts") + theme_grey()   + scale_color_manual(values=c(my_color[1:n_ccf])) + scale_fill_manual(values=c(my_color[1:n_ccf])) +
+     theme(plot.title = element_text(size =10))
+  if (flip==TRUE) p1 <- p1 + coord_flip() + scale_x_reverse()
+  if (legend==FALSE) p1 <- p1 + theme(legend.position = "none")
+  if (xlab==FALSE) p1 <- p1 + xlab("")
+  if (ylab==FALSE) p1 <- p1 + ylab("")
+  p1
+  return(p1)
+  
+}
+
+ccf_all_plot_density <- function(samplelist,input=count_folder,flip=FALSE){
+  library(cowplot)
+  library(ggplot2)
+  
+  n_sample <- length(samplelist)
+  
+  for (i in 1:n_sample){
+    sample <- as.character(samplelist[i])
+    
+    ssm_new <- load_ccf(sample,input=input)[['ssm']][,c("ccube_ccf_mean","ccube_ccf")]
+    ssm_new <- subset(ssm_new,ccube_ccf<=1 & ccube_ccf >=0)
+    n_ccf <- length(unique(ssm_new$ccube_ccf_mean))
+    ssm_new$cluster <-  factor(ssm_new$ccube_ccf_mean,labels=1:n_ccf)
+    ssm_new$sample <- sample
+    ssm_new$n_sample <- nrow(ssm_new)
+    if (i==1) {
+      ssm_plt <- ssm_new
+      n_ccf_new <- n_ccf } else {
+      ssm_plt <- rbind(ssm_plt,ssm_new)
+      n_ccf_new <- max(n_ccf,n_ccf_new)
+    }
+  } 
+    ssm_plt$sample_order <- factor(ssm_plt$sample, levels=samplelist)
+      
+    p1 <- ggplot(ssm_plt,aes(ssm_plt$ccube_ccf,fill=cluster,color=cluster)) + 
+      geom_histogram(aes(y = stat(width*density)),bins=100,position="identity",alpha=0.8)+
+      geom_vline(data=ssm_plt, aes(xintercept=ccube_ccf_mean, color=cluster),
+                 linetype="dashed")+
+      xlab("Cancer Cell Fraction") +
+      ylab("Mutation density") + theme_grey() + scale_color_manual(values=c(my_color[1:n_ccf_new])) + scale_fill_manual(values=c(my_color[1:n_ccf_new])) +
+      theme(plot.title = element_text(size =10))+ facet_grid(~sample_order) + 
+      coord_flip() + scale_x_reverse() 
+    
+    return(p1)
+} 
+
+
+###########################################################
+### --- Step5: Combine all the nmf sig and exposure ---####
+input_folder <- combine_input
+i <- 1
+combine_nmf <- function(input_folder,cancertype,return){
+  
+  for (i in 1:length(cancertype)){
+    type <- cancertype[i]
+    print(paste0("load ",i," th type : ",type))
+    expo_file <- dir(paste0(input_folder,type,"/"))[grep("expowithsample",dir(paste0(input_folder,type,"/")))]
+    sig_file <- dir(paste0(input_folder,type,"/"))[grep("sig",dir(paste0(input_folder,type,"/")))]
+    load(paste0(input_folder,type,"/",expo_file))
+    load(paste0(input_folder,type,"/",sig_file))
+    colnames(sig) <- paste0(type,"_sig",1:ncol(sig))
+    
+    
+    if (i==1) {
+      #combine_expo <- expo[,-ncol(expo)]
+      combine_sig <- sig
+    } else {
+      #combine_expo <- rbind(combine_expo,expo)
+      combine_sig <- cbind(combine_sig,sig)
+    }
+  }  
+    #save(combine_expo,file=paste0(input_folder,"combine_expo_",Sys.Date(),".RData"))
+    save(combine_sig,file=paste0(input_folder,"combine_sig_",Sys.Date(),".RData"))
+    
+  
+  if (return=="sig") return(combine_sig)
+  if (return=="expoo") return(combine_expo)
+}
+
+
+###########################################################################
+### --- Step6: Association ----- ####
+
+consensushc(res,method = "average", dendrogram = TRUE)
+coefmap(res)
+
+### --- Step3: Survival analysis for TCGA data
+# Install from CRAN --------------------------
+install.packages("dplyr")
+install.packages("survminer")
+
+# Install from Bioconductor ------------------
+# Install Bioconductor core packages first
+source("http://bioconductor.org/biocLite.R")
+biocLite()
+# Next install RTCGA and RTCGA data packages
+biocLite("RTCGA")
+biocLite("RTCGA.clinical")
+biocLite("RTCGA.mRNA")
+
+library(dplyr)
+library(survival)
+library(survminer)
+library(ggplot2)
+?lung
+head(lung)
+class(lung)
+dim(lung)
+View(lung)
+
+as_tibble(lung)
+lung <- as_tibble(lung)
+
+s <- Surv(lung$time, lung$status)
+class(s)
+head(lung)
+
+survfit(s~1)
+survfit(Surv(time, status)~1, data=lung)
+sfit <- survfit(Surv(time, status)~1, data=lung)
+sfit
+summary(sfit)
+
+sfit <- survfit(Surv(time, status)~sex, data=lung)
+summary(sfit)
+
+range(lung$time)
+seq(0, 1100, 100)      
+
+summary(sfit, times=seq(0, 1000, 100))
+plot(sfit)
+
+ggsurvplot(sfit)
+ggsurvplot(sfit, conf.int=TRUE, pval=TRUE, risk.table=TRUE, 
+           legend.labs=c("Male", "Female"), legend.title="Sex",  
+           palette=c("dodgerblue2", "orchid2"), 
+           title="Kaplan-Meier Curve for Lung Cancer Survival", 
+           risk.table.height=.15)
+
+library(dplyr)
+colon <- as_tibble(colon)
+colondeath <- filter(colon, etype==2)
+
+sfit <- survfit(Surv(time,status)~sex,data=colon)
+summary(sfit,times=seq(0,2000,500))
+ggsurvplot(sfit,conf.int=TRUE,pval=TRUE)
+
+sfit <- survfit(Surv(time,status)~differ,data=colon)
+ggsurvplot(sfit,conf.int=TRUE,pval=TRUE)
+
+##### TCGA Data
+library(RTCGA)
+infoTCGA()
+library(RTCGA.clinical)
+?clinical
+dim(BRCA.clinical)
+names(BRCA.clinical)
+
+grep("smoke",names(LUAD.clinical))
+names(LUAD.clinical)[424]
+
+clin <- survivalTCGA(LUAD.clinical,
+                     extract.cols=c("admin.disease_code","patient.days_to_birth","patient.gender","patient.number_pack_years_smoked"))
+head(clin)
+table(clin$admin.disease_code)
+colnames(clin)[2] <- "samplename" 
+
+
+
+expo <- as.data.frame(t(expo))
+expo_new <- as.data.frame(t(apply(expo,1,function(x) x/sum(x))))
+rowSums(expo_new)
+
+library(survminer)
+
+expo_new$samplename <- samplename_random
+colnames(expo_new)[1:4] <- paste0("sig",1:4)
+
+luad_clin <- left_join(expo_new,clin,by="samplename")
+head(luad_clin)
+luad_clin$age <- round(-as.numeric(luad_clin$patient.days_to_birth)/365)
+luad_clin$patient.number_pack_years_smoked <- as.numeric(luad_clin$patient.number_pack_years_smoked )
+luad_clin <- luad_clin[which(!is.na(luad_clin$times)),]
+luad_clin <- as_tibble(luad_clin)
+table(luad_clin$admin.disease_code) <- as.factor(luad_clin$admin.disease_code)
+
+
+sfit <- coxph(Surv(times, patient.vital_status)~sig1+sig2+sig3+sig4+strata(age)+strata(patient.gender), data=luad_clin)
+summary(sfit)
+
+# -- METHOD 2
+library(dplyr)
+library(tidyverse)
+library(tidytidbits)
+library(survivalAnalysis)
+
+luad_clin <- as_tibble(luad_clin)
+luad_clin <- luad_clin[which(!is.na(luad_clin$times)),]
+luad_clin$patient.gender <- as.factor(luad_clin$patient.gender )
+
+luad_clin %>%
+  analyse_multivariate(vars(times, patient.vital_status),
+                       covariates = vars(age, strata(patient.gender), sig1, sig2,sig3,sig4,patient.number_pack_years_smoked)) ->
+  result
+  
+ggforest(result, data = luad_clin)  
+  
+ggsurvevents(sfit)
+ggsurvplot(sfit, conf.int=TRUE, pval=TRUE)
+
+## --- check exposure distribution for each sample
+xx <- melt(luad_clin,id=c("samplename"),measure.vars=c("sig1","sig2","sig3","sig4"))
+p4 <- ggplot() + geom_bar(aes(y = value, x = samplename, fill = variable), data = xx,
+                          stat="identity")
+####
+map_group
+head(map_group)
+data
+unique(map_group$group)
+
+###############################################################
+### ---- Step4 : 9.11 Association - COLORECTAL
+
+
+
+#### 
+library(readxl)
+neutral_colo <- read_excel("/home/xinyu/Downloads/Supplementary Data Set 1_ Pan-cancer whole-exome data set.xls",sheet=1)
+neutral_colo <- subset(neutral_colo,type=="Colon adenocarcinoma")
+neutral_colo$tumourName <- substr(neutral_colo$tumourName,5,16)
+colnames(neutral_colo)[3] <- "samplename"
+head(neutral_colo)
+setwd("/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/Count_Matrix/Nature genetics/")
+#save(neutral_colo,file="neutral_colo_101_MSI_CIN.RData")
+
+samplename <- neutral_colo$samplename
+output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/Count_Matrix/Nature genetics/9.12_Neutral_paper_colon_101/"
+CountBuild_sample(samplename,output)
+
+CountMat <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/Count_Matrix/Nature genetics/9.12_Neutral_paper_colon_101/_0-1_fractionMatrix.csv")[,-1]
+samplename <- as.character(read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/Count_Matrix/Nature genetics/9.12_Neutral_paper_colon_101/_samplelist.csv")[,-1])
+
+nmf_sig_plot(ccfBandCountsMat,samplename,output)
+#####
+immune <- read_excel("/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/Count_Matrix/Nature genetics/Association_data/18.immune_landscape_measure.xlsx")
+
+save(immune,file="18.immune_data.RData")
+
+#######################################################################
+###################################### MAIN ########################
+library(dplyr)
+### --- Step pre: post_summary ----- ####
+ccf_input <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA/"
+summary_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/"
+
+post_summary <- Build_post_summary(input=ccf_input,output=summary_output)
+write.csv(post_summary)
+###----
+immune <- "/home/xinyu/Work/gdc-client/Ccube_tcga/18.immune_landscape_measure.xlsx"
+tcga_summary_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/"
+summary_file <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_post_summary_8564_2019-09-20.csv"
+
+tcga_summary <- tcga_summary_build(summary_file=summary_file,mincount=30,immune_measure_file=immune,output=tcga_summary_output)
+
+write.csv(tcga_summary,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_summary_6077_mincount30_2019-09-20.csv")
+
+tcga_summary <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_summary_5985_mincount50_2019-09-20.csv")[,-1]
+
+    n_type <- tcga_summary %>%
+      group_by(`TCGA Study`) %>%
+      dplyr::summarise(n=n())
+        
+    typelist <- subset(n_type,n>=30)[,1]
+    cancertype <- as.character(unlist(typelist))
+
+### --- plot CCF
+    # count_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA/"
+    # 
+    # samplelist <- as.character(subset(tcga_summary,TCGA.Study =="ACC")$samplename)
+    # 
+    # p1 <- ccf_all_plot_density(samplelist,input=count_folder)
+    # p1 +ggtitle(paste0("CHOL with 13 samples"))    
+    # 
+    
+########################################################    
+### --- Step1: Construct Count Matrix by type ----- ####
+    library(reshape2)
+    count_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA/"
+    count_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount30_minsample30/"
+    
+    # Construct Count Matrix for each cancer type  
+    Count <- TypeCountBuildTCGA(post_summary=tcga_summary,cancertype=cancertype,input_folder=count_folder,output=count_output,typeVar="`TCGA Study`")
+    
+    TypeCountBuildTCGA_consensus(post_summary=tcga_summary,input_folder = count_folder,output=count_output)
+    #NMF_sig_plot_countMat(Count,4)
+    # Construct Count Matrix for all cancer samples     
+    #TypeCountBuildTCGA_consensus(post_summary=tcga_summary,input_folder=count_folder,output=count_output)
+    
+##########################################################
+### --- Step3: Input rank estimate csv and plot ----- ####
+    
+    rank_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/rank_estimate_plot/9.20_TCGA_type_0-1_100_mincount30_minsample30/"
+    estimate_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Rank_estimate/9.20_TCGA_type_0-1_100_mincount50_minsample30/"
+    
+    
+    rank_estimate_plot(rank_folder=rank_folder,output=estimate_output,cancertype)
+    
+    write.csv(cancertype,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/type_summary_9-20_24.csv")
+
+##########################################################################    
+### --- Step4: Run NMF based on chosen rank and output sig/expo ----- ####
+    input_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount30_minsample30/"
+    nmf_output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/"
+    rank_summary <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/type_summary_9-20_24.csv")[,-1]
+    
+    cancertype <- cancertype[!is.na(cancertype)]
+    
+    #nmf_sig_plot("COAD",input_folder= input_folder,rank_summary=rank_summary,output=output)
+    
+    sig_summary <- nmf_sig_all_plot(cancertype=cancertype,input_folder= input_folder,rank_summary=rank_summary,output=nmf_output)
+
+###########################################################
+### --- Step5: Combine all the nmf sig and exposure ---####
+    combine_input <- nmf_output
+    
+    cancertype <- unique(post_summary_new$TCGA.Study)
+    combine_sig <- combine_nmf(input_folder= combine_input,cancertype=cancertype,return="sig")
+    
+    colSums(combine_sig)
+    colSums(sig1)
+    
+    sig1 <- as.data.frame(t(sig_label[,1:100]))
+
+    ### --- Step6: Hierarchical Clustering ----- ####
+# in a type first
+install.packages("NbClust")
+# then across cancer types
+    library(NbClust)
+    library("RColorBrewer")
+    library("pheatmap")
+    library(factoextra)
+    install.packages("factoextra",dependency=T)
+    
+    res <- NbClust(data=sig1,distance = "manhattan",min.nc=2, max.nc=6, 
+            method = "complete")
+    
+    res$Best.nc
+    res$All.index
+    res$Best.partition
+    
+    ### manually test all methods
+    lista.methods = c("kl","ch","hartigan",
+                     "cindex","db","silhouette","ratkowsky","ball",
+                      "ptbiserial","gap", "frey", "mcclain",  "gamma", "gplus", "tau", "dunn", 
+                       "sdindex", "sdbw") # "hubert","dindex"
+    lista.distance = c("metodo","euclidean", "maximum", "manhattan", "canberra")
+    
+    tabla = as.data.frame(matrix(ncol = length(lista.distance), nrow = length(lista.methods)))
+    names(tabla) = lista.distance
+    
+    for (j in 2:length(lista.distance)){
+      for(i in 1:length(lista.methods)){
+        print(i)
+        nb = NbClust(sig1,distance = lista.distance[j],
+                     min.nc = 2, max.nc = 6, 
+                     method = "complete", index =lista.methods[i])
+        tabla[i,j] = nb$Best.nc[1]
+        tabla[i,1] = lista.methods[i]
+        
+      }}
+    
+    table(tabla[,5])
+    
+    ##############
+    
+    sig1 <- scale(combine_sig)
+    sig1 <- apply(sig1,2,function(x) x/sum(x))
+    colSums(sig1)
+    type <- data.frame(sapply(colnames(sig1),function(x) strsplit(x,"_")[[1]])[1,])
+    colnames(type) <- "cancertype"
+
+    breaksList = seq(0, 0.1, by = 0.01)
+    col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
+    
+    myCol = list(cancertype=c(BLCA="pink1", BRCA="violet", CESC="mediumpurple1", COAD="slateblue1", DLBC="purple", ESCA="purple3",
+              GBM="turquoise2", HNSC="skyblue", KIRC="blue2", LGG="navyblue",
+              LIHC="orange", LUAD="tomato", LUSC="coral2", OV="palevioletred", PAAD="violetred", PRAD="red2",
+              READ="springgreen2", SARC="palegreen4",
+              SKCM="wheat2", STAD="tan", UCEC="tan3", UVM="brown",
+              KIRP="grey70"))
+    
+    newCols <- colorRampPalette(grDevices::rainbow(length(unique(type$cancertype))))
+    mycolors <- c('#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000','#003300','#B0C4DE',	'#FF4500')
+    names(mycolors) <- unique(type$cancertype)
+    mycolors <- list(cancertype = mycolors)
+    
+    out <- pheatmap(sig1, cutree_cols = 6, fontsize_col = 3,fontsize_row = 0.4,color = col, 
+                    breaks = breaksList,clustering_distance_cols="manhattan",
+                    cluster_rows=F, cluster_cols=F)
+    
+    print(out)
+    plot(c(1,1))
+    #annotation_col = type, annotation_colors=  mycolors,
+    #35 - pheatmap cannot deal with reordering since it do not provide option for this
+    length( out$tree_col$order)-35
+    out$tree_col$order[which(out$tree_col$order>35)] <- out$tree_col$order[which(out$tree_col$order>35)]  -35
+    out$tree_col$order[which(out$tree_col$order<=35)] <- out$tree_col$order[which(out$tree_col$order<=35)]  +103
+    out$gtable
+    names(out$tree_col)
+    colnames(combine_sig)[out$tree_col[["order"]]]
+    
+    rownames(combine_sig) <- paste0(1:100)
+    
+    sig_label <- as.data.frame(t(combine_sig))
+    sig_label$cluster <- NA
+    sig_label[out$tree_col[["order"]][1:14],]$cluster <- "1"
+    sig_label[out$tree_col[["order"]][15:35],]$cluster <- "2"
+    sig_label[out$tree_col[["order"]][36:51],]$cluster <- "3"
+    sig_label[out$tree_col[["order"]][52:91],]$cluster <- "4"
+    sig_label[out$tree_col[["order"]][92:116],]$cluster <- "5"
+    sig_label[out$tree_col[["order"]][117:138],]$cluster <- "6"
+   
+    #save(sig_label,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/9.22_Combine_sig_HClust_result.RData")
+    sig_label[,1:100] <- as.numeric(unlist(sig_label[,1:100]))
+    
+    consensus_sig <- sig_label %>%
+      group_by(cluster) %>%
+      summarise_all(mean)
+    
+    plot_consensus <- apply(t(consensus_sig[,2:101]),2,as.numeric)
+    sig_plot( plot_consensus)
+    
+    lcd_sig <- lcd_sig[,c(2,1,3:6)] 
+    
+    print(sig_plot(lcd_sig))
+    
+    save(lcd_sig,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/lcd_sig_2019-09-22.RData")
+
+    ### Frequency heatmap
+    sig_fre <- as.data.frame(sig_label$cluster)
+    sig_fre$sig <- unlist(rownames(sig_label))
+    sig_fre$type <- sapply(sig_fre$sig,function(x) strsplit(x,"_")[[1]])[1,]
+    colnames(sig_fre)[1] <- "Signature"
+    
+    library(dplyr)
+    data <- sig_fre %>%
+      group_by(type) %>%
+      mutate(`Sig_1` = "1" %in% Signature, `Sig_2` = "2" %in% Signature,`Sig_3` = "3" %in% Signature,`Sig_4` = "4" %in% Signature,`Sig_5` = "5" %in% Signature,`Sig_6` = "6" %in% Signature)
+    
+    data <- unique(data[,3:9])
+    xx <- melt(data,id="type")
+    ggplot(data=xx,aes(x=variable,y=type)) + geom_tile(aes(fill=value,color=var(signature)),colour = "white") + theme_grey()+
+      scale_x_discrete(expand = c(0, 0))+ ylab("")+xlab("")+
+      scale_y_discrete(expand = c(0, 0))+
+      scale_fill_manual(values = c("FALSE" = "azure1", "TRUE" = "aquamarine4"))+
+      scale_x_discrete(position = "top") +
+      theme(axis.ticks.x.top = element_blank(),axis.ticks.y.left = element_blank())+coord_equal()
+    
+    xx_new <- xx
+    xx_new <- xx_new[-which(xx_new$value == FALSE),]
+    p1 <- ggplot(data=xx_new,aes(x=type,y=value)) + geom_tile(aes(fill=variable),colour = "white") +
+      facet_grid(rows = vars(variable))+ ylab("Evolutionary Signature")+xlab("")+theme_grey()+
+      scale_y_discrete(expand = c(0, 0))+ 
+      scale_fill_manual(values = my_color)+
+      scale_x_discrete(position = "top") +
+      theme(axis.ticks.x.top = element_blank(),
+            axis.ticks.y.left = element_blank(),
+            axis.text.y.left = element_blank(),
+            axis.text.x = element_text(size=9),
+            panel.grid.minor.y = element_blank(),
+            strip.text.y = element_text(color="white",size=8),
+            legend.position = "none")+coord_equal()
+    
+    g1 <- ggplotGrob(p1)
+    
+    ### change the color of facet strips
+    library(grid)
+    
+    strip_both <- which(grepl('strip-', g1$layout$name))
+    k <- 1
+  
+    for (i in strip_both) {
+      j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+      g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
+      k <- k+1
+    }
+    grid.draw(g1)
+ 
+    
+### --- Step8: LCD 
+    if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+    
+    BiocManager::install("YAPSA")
+    
+    consensus_fractionmatrix <- read.csv("/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount30_minsample30/consensus/TCGA_6077_0-1_fractionMatrix_2019-09-23.csv")[,-1]
+    lcd_sig <- t(consensus_sig[,2:101])
+    exposure <- YAPSA::LCD(consensus_fractionmatrix,lcd_sig)
+    exposure <- as.data.frame(t(exposure))
+    colnames(exposure) <- paste0("sig_",1:6)
+    write.csv(exposure,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/exposure_LCD_6077_9.23.csv")
+    
+    save(consensus_sig,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/sig_hclust-cluster_6077_9.22.csv")
+
+#####################################
+### --- Step7: Association ----- ####
+    association_variable_summary <- as.data.frame(colnames(tcga_summary))
+    write.csv(association_variable_summary ,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/association_variable_summary.csv")
+    exposure[,1]
+    measure <- cbind(exposure,tcga_summary)
+    
+    ##############Spearman correaltion##############
+    library(corrplot)
+    library(psych)
+
+    head(measure)
+    glimpse(measure)
+    measure[,24:83] <- apply(measure[,24:83],2,as.numeric)
+    colnames(measure)[21] <- "Types"
+    # ###scatterplot
+    # xx <- melt(measure,id=c("samplename","cancertype","leuk_estimate"))
+    # xx <- as_tibble(xx)
+    # xx_new<- xx[!is.na(xx$leuk_estimate),]
+    # ggplot(data=xx_new,aes(x=leuk_estimate,y=value)) + geom_point() +facet_wrap(variable~.)
+    # 
+    ###Leukocyte Fraction
+    cormat <- (corr.test(measure[,1:6],measure[,24:83],method = "spearman",use = "complete",adjust="holm"))
+    #corrplot(cormat[["r"]],method="number")
+    
+    ##### Plot1 - all measure vs. sig
+    cor <- as.data.frame(cormat[["r"]])
+    cor$sig <- paste0("sig_",1:6)
+    cor_p <- as.data.frame(cormat[["p"]])
+    cor_p$sig <- paste0("sig_",1:6)
+    xx <- melt(cor,id="sig")
+    xx_p <- melt(cor_p,id="sig") 
+    colnames(xx_p)[3] <- "p_value"
+    xx <- left_join(xx,xx_p,by=c("sig","variable"))
+    xx[which(xx$p_value>0.05),]$value <- 0
+    
+    coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+    
+    ggplot(data=xx,mapping=aes(x=variable,y=sig,fill=value)) + geom_tile() + #ggplot need each value be a rows in the new datasets
+      scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+      geom_text(data=xx,aes(x=variable,y=sig,label=round(value,2)),size=3,col="#ffffff")+
+      ylab("Evolutionary Signatutres")+xlab("")+
+      theme(axis.text.x = element_text(angle = 30, hjust = 1,size=10),
+            axis.text.y=element_text(size=10),
+            legend.position = "top",legend.text = element_text(size=6),
+            legend.title = element_text(size=10,face="bold"),
+            axis.title.y = element_text(size=12,face="bold"))
+     
+    ##### Plot2 - single measure vs. cancertype
+  
+    ### reorganize the variable names and orders of input file    
+    heatmap_plot_file_format <- function(file,sample_index,type_index,sig_index,var_index,keep_index){
+      colnames(file)[type_index] <- "Types"
+      colnames(file)[sample_index] <- "samplename"
+      file$samplename <- substr(file$samplename,1,12)
+      file$samplename <- gsub("[.]","-",file$samplename)
+      n_sig <- length(sig_index)
+      
+      #numeric
+      file[,var_index] <- apply( file[,var_index],2,as.numeric)
+      file <- file[,c(sig_index,sample_index,type_index,var_index,keep_index)]
+      
+      return(list(file,n_sig))
+    }
+    
+    file_new <- heatmap_plot_file_format(measure,7,21,1:6,24:83,22:23)[[1]]
+    n_sig <- heatmap_plot_file_format(measure,7,21,1:6,24:83,22:23)[[2]]
+    
+    ### filter tcga summary with filtered cancertype
+    n_type <- file_new %>%
+      group_by(Types) %>%
+      dplyr::summarise(n=n())
+    
+    cancartype <- cancertype[!is.na(cancertype)]
+    
+    file_new <- do.call("rbind",lapply(cancertype,function(x) as.data.frame(subset(file_new,Types==x))) )
+    
+    file <- file_new
+    
+    ### Basic heatmap_plot - notice input should be output of function heatmap_plot_file_format
+    heatmap_plot <- function(file,varcol,n_sig){     
+  
+      library(RColorBrewer)
+      library(ggplot2)
+      library(psych)
+      library(plyr)
+      
+      ### Basic correlation function per type
+      corr_spearman_type <- function(xx,n_sig=n_sig,varcol=varcol,output="r"){
+        col <- function(data,n_sig,varcol){
+          return(corr.test(data[,1:n_sig],data[,varcol],method = "spearman",use = "complete",adjust="holm"))
+        }
+        r_commands <- paste0("r <- data.frame(",paste0("cor=col(xx,",n_sig,",",varcol,")[['r']]",collapse=","),")")
+        p_commands <- paste0("p <- data.frame(",paste0("p=col(xx,",n_sig,",",varcol,")[['p']]",collapse=","),")")
+        n_commands <- paste0("n <- data.frame(",paste0("n=col(xx,",n_sig,",",varcol,")[['n']]",collapse=","),")")
+        eval(parse(text=r_commands))
+        eval(parse(text=p_commands))
+        eval(parse(text=n_commands))
+        if (output=="r") return(r)
+        if (output=="p") return(p)
+        if (output=="n") return(n)
+      }
+      
+      
+      ### Correlation between single measure across cancer types
+      my_function <- function(file,varcol,n_sig,output="r")   {
+        data <- file[which(!is.na(file[,varcol])),]
+        if (nrow(data)<=2) {
+          data <- NULL
+        }
+         else {
+           data <- as.data.frame(t(corr_spearman_type(file,n_sig=n_sig,varcol=varcol,output=output)))
+          if (ncol(data)==n_sig) colnames(data) <- paste0("sig_",1:n_sig)
+          if (ncol(data)==1) colnames(data) <- "n_sample"
+        }
+            
+        return(data)
+      }
+      
+      cor_r_type <- ddply(file, .(Types), .fun =my_function, varcol=varcol,n_sig=n_sig)
+      xx_r <- melt( cor_r_type,id="Types")
+      cor_p_type <- ddply(file, .(Types), .fun =my_function,varcol=varcol,n_sig=n_sig,output="p")
+      xx_p <- melt( cor_p_type,id="Types")
+      cor_n_type <- ddply(file, .(Types), .fun =my_function,varcol=varcol,n_sig=n_sig,output="n")
+      xx_cor <- left_join(xx_r,xx_p,by=c("Types","variable"))
+      xx_cor <- left_join(xx_cor,cor_n_type,by="Types")
+      colnames(xx_cor)[3:5] <- c("r","p","n_sample")
+      xx_cor[which(xx_cor$p>0.05),]$r <- 0
+  
+      coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+      #display.brewer.pal(n=256,name="RdBu")
+      varlabel <- colnames(file)[varcol]
+      
+      p1 <- ggplot(data=xx_cor,mapping=aes(x=Types,y=variable,fill=r)) + geom_tile() + #ggplot need each value be a rows in the new datasets
+        scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+        geom_text(aes(x=Types,y=variable,label=round(r,2)),size=3,col="#ffffff")+
+        labs(subtitle = paste0(varlabel))+
+        annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
+        ylab("Evolutionary Signatutres")+xlab("TCGA Types")+
+        theme(axis.text.x = element_text(angle = 30, hjust = 1,size=10),
+              axis.text.y=element_text(size=10),
+              legend.position = "right",legend.text = element_text(size=6),
+              legend.title = element_text(size=10,face="bold"),
+              axis.title.y = element_text(size=12,face="bold"),
+              plot.margin = unit(c(3,1,1,1),"lines"))+ 
+        coord_cartesian(ylim=c(1,n_sig+0.4))
+        
+      return(p1)
+}
+    
+    library(reshape2)
+  
+    p_9 <- heatmap_plot(file,varcol=9,n_sig=6) 
+    p_10 <- heatmap_plot(file,varcol=10,n_sig=6)    
+    p_11 <- heatmap_plot(file,varcol=11,n_sig=6)  
+    p_12 <- heatmap_plot(file,varcol=12,n_sig=6)  
+    p_13 <- heatmap_plot(file,varcol=13,n_sig=6)
+    p_14 <- heatmap_plot(file,varcol=14,n_sig=6)
+    p_15 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_16 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_17 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_69 <- heatmap_plot(file,varcol=69,n_sig=6)
+    p_69 <- heatmap_plot(file,varcol=116,n_sig=6)
+    
+    for (i in 16:70){
+    commands <- paste0("p_",i,"<- heatmap_plot(file,varcol=",i,",n_sig=6)")
+    eval(parse(text=commands))
+    }
+    
+    plot_grid(p_9,p_10,p_11,p_12,p_13,align='V',ncol=1,rel_heights = c(0.2,0.2,0.2,0.2,0.2))
+    ### Output by variable type
+    
+    clinical$age_at_initial_pathologic_diagnosis
+    clinical$number_pack_years_smoked
+    clinical$samplename
+    
+    glimpse(file)
+    file$age_at_initial_pathologic_diagnosis <- as.numeric(file$age_at_initial_pathologic_diagnosis)
+    file$number_pack_years_smoked <- as.numeric(file$number_pack_years_smoked)
+    library(dplyr)
+    file <- left_join(exposure_all,clinical,by="samplename")
+    which(colnames(file)=="number_pack_years_smoked")
+    
+    ####15.Survival
+    file <- left_join(expo,extra.endpoint,by="samplename")
+    head(file)
+    file[,-(1:5)] <- apply(file[,-(1:5)],2,as.numeric)
+    varcol <- 7:22
+    
+    scatter_var <- function(file,varcol){
+      library(devtools)
+      source_gist("524eade46135f6348140")
+      
+      file_new <- file[,c(1:5,varcol)]
+      xx <- melt(file_new,id=c("samplename","cancertype",colnames(file)[varcol]))
+      xx <- as_tibble(xx)
+      xx_new<- xx[!is.na(xx[,colnames(file)[varcol]]),]
+      commands <- paste0("ggplot(data=xx_new,aes(x=`",colnames(file)[varcol],"`,y=value)) + geom_point() +facet_wrap(variable~.)+stat_summary(fun.data=mean_cl_normal) + 
+                         stat_smooth_func(geom='text',method='lm',hjust=0,parse=TRUE)+geom_smooth(method='lm',se=FALSE)")
+      print(eval(parse(text = commands)))
+      
+      cormat <- (corr.test(file[,varcol],file[,1:3],method = "spearman",use = "complete",adjust="holm"))
+      return(cormat)
+    }
+    
+    scatter_var(file,8)
+  
+################3
+######Step 8: syncope gene analysis
+  library(readxl)
+  library(dplyr)
+  syncope <- read_xlsx("/home/xinyu/Downloads/Rcade apo and senescence.XLSX",skip=2)
+  syncope_genelist1 <- syncope$...2
+  syncope_genelist2 <- syncope$...5
+  syncope_genelist3 <- syncope$...8
+  syncope_genelist4 <- syncope$...11
+  
+  
+  pathway_genelist <- read_xlsx("/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/pathway_gene_list.xlsx")
+  gene_Cell_Cycle <- pathway_genelist$Cell_Cycle
+  
+  samplelist <- post_summary_new$samplename
+  
+  count_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA/"
+  
+  ccfBandCountsMat <- CountMatBuild(samplelist,genelist=gene_Cell_Cycle,input_folder=count_folder,rows=101)
+  
+  ccfCountsMat <- ccfBandCountsMat[[1]]
+  ccfCountsRandomMat <- ccfBandCountsMat[[2]]
+  ccfFractionMatrix <- ccfBandCountsMat[[3]]
+  ccfFractionRandomMatrix <-ccfBandCountsMat[[4]]
+  
+  ccfCountsMat[,1]
+ 
+  ## LCD
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+  
+  BiocManager::install("YAPSA")
+ 
+  lcd_sig <- t(consensus_sig[,2:101])
+  exposure <- YAPSA::LCD(ccfCountsRandomMat ,lcd_sig)
+  exposure <- as.data.frame(t(exposure))
+  colnames(exposure) <- paste0("sig_",1:6)
+  exposure$sample <- samplelist  
+  
+  map <- post_summary_new[,c("samplename","TCGA.Study")]
+  colnames(map) <- c("sample","type")
+  
+  exposure <- left_join(exposure,map,by="sample")
+  
+  post_summary$samplename
+  dir.create("/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/10.22_syncope_gene/")
+  write.csv(exposure,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/10.22_syncope_gene/exposure_LCD_6077_genelist1.csv")
+  
+  #save(consensus_sig,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/sig_hclust-cluster_6077_9.22.csv")
+  
+  ########################  Plot exposure ###########################
+  exposure <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/exposure_LCD_6077_9.23.csv")[,-1]
+  exposure <- exposure[c(2,1,5,6,4,3),]
+  
+  exposure <- as.data.frame(t(exposure))
+  colnames(exposure) <- paste0("sig_",1:6)
+  exposure$sample <- samplelist  
+  map <- post_summary_new[,c("samplename","TCGA.Study")]
+  colnames(map) <- c("sample","type")
+  exposure <- left_join(exposure,map,by="sample")
+  
+  evoSigExpoDf <- exposure
+
+  library(reshape2)
+  expo <- as.data.frame(lapply(evoSigExpoDf[,1:6],function(x) x/rowSums(evoSigExpoDf[,1:6])))
+  expo$sample <-  evoSigExpoDf$sample
+  expo$type <-  evoSigExpoDf$type
+  #expo <- exposure_all[1:8]
+  expo[,1:6] <-  as.data.frame(lapply( expo[,1:6],function(x) x/rowSums( expo[,1:6])))
+  xx = melt(expo, id = c("sample", "type"))
+  # 
+  exposure_ave <- xx %>%
+    group_by(type,variable) %>%
+    summarize(ave = median(value))
+  
+  order<- order(-exposure_ave[which(exposure_ave$variable=="sig_1"),]$ave)
+  exposure_ave$type <- factor(exposure_ave$type, levels = unique(exposure_ave$type)[order])
+  ### Average bar plot for each type
+  fills <- brewer.pal(8, "Set3")[c(1,3:8,2)][1:6]
+
+  p1 <- ggplot(data=exposure_ave,aes(x=type,y=ave)) +geom_bar(aes(fill=variable),position="fill",stat="identity")+
+    theme(axis.text.x = element_text(angle = 90,size=8),legend.position = "bottom")+xlab("")+
+    scale_fill_manual(values = fills,name = "Evolutionary Signatures", labels = c(paste0("signature",1:6)),guide = guide_legend(nrow=1))
+  #save(exposure_all,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/exposure_all_snv_evo.RData")
+  expo <- as.data.frame(lapply(evoSigExpoDf[,1:6],function(x) x/rowSums(evoSigExpoDf[,1:6])))
+  expo$sample <-  evoSigExpoDf$sample
+  expo$type <-  evoSigExpoDf$type
+  
+  xx_s <- unique(xx[,c("samplename","Types")])
+  xx_s$index <- -0.01
+  
+  save(expo,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/lcd_exposure_order_with_sample.RData")
+  
+  
+  ########################### 2019.11.1 Plot exposure stacked histogram across cancer types
+  library(ggplot2)
+  xx$index <- -0.01
+  p1 <- ggplot( xx[order(xx$type),],aes(fill=variable,y=value,x=sample)) +geom_bar(position="fill",stat="identity")+
+    scale_x_discrete(limits=xx_s[order(xx_s$Types),]$samplename)+
+    theme(legend.position = "right",axis.text.x = element_blank(),
+          axis.ticks.x =element_blank(),legend.key.size = unit(0.1, "in"))+xlab("")+ylab("Exposure")+guides(fill=guide_legend(title=""))
+ 
+  p2 <- ggplot( xx[order(xx$Types),]) + geom_tile(aes(fill=Types,y=index,x=samplename),stat="identity",height=0.01)+ scale_x_discrete(limits=xx_s[order(xx_s$Types),]$samplename)+
+    theme(legend.position = "bottom",
+          axis.text = element_blank(),
+          axis.ticks =element_blank(),
+          legend.key.size =  unit(0.1, "in"),
+          axis.title.y = element_text(angle = 0,size=6))+ xlab("")+ylab("")+guides(fill=guide_legend(nrow=1,label.position="bottom",title=""))
+  library(gridExtra)
+  library(grid)
+ 
+  grid.arrange(p1,p2,ncol=1)
+  
+  
+  sort(xx,by=xx$type)
+  
+  library(ComplexHeatmap)
+  rowAnnotation(foo2 = runif(10), bar2 = anno_barplot(runif(10)))
+ 
+  
+  #### Step 8: Association with SNV signature
+  load("/home/xinyu/Work/Phd/NAS/Test_ccube/TCGA_SNV_sigs/cosmic/sample_signature_cosmic.RData")
+  load("/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount30_minsample30/consensus/TCGA_6077_0-1_countMatrix_2019-09-23.RData")
+  
+  
+  ccfFractionMatrix <- apply(ccfCountsMat,2,function(x) x/sum(x))
+  
+  exposure_evo <- expo
+  Extract_sig <- function(countmat,consensus_sig){
+    if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+    if (!requireNamespace("YAPSA", quietly = TRUE))
+      BiocManager::install("YAPSA")
+   
+    lcd_sig <- t(consensus_sig[,2:101])
+    exposure_evo <- YAPSA::LCD(ccfFractionMatrix ,lcd_sig)
+    exposure_evo <- as.data.frame(t(exposure_evo))
+    colnames(exposure_evo) <- paste0("sig_",1:6)
+    exposure_evo$sample <- samplelist
+    
+    exposure_snv <- as.data.frame(t(exposure))
+    exposure_snv$sample <- colnames(exposure)
+    exposure_snv <- file_format(exposure_snv,31)
+    exposure_evo <- exposure_evo %>% file_format(7)
+     
+    exposure_all <- left_join(exposure_evo, exposure_snv,by="samplename")
+    sample_type_map <- post_summary_new[,c("samplename","TCGA.Study")]
+    exposure_all <- left_join(exposure_all,sample_type_map,by="samplename")
+    exposure_all <- exposure_all[,c(1:7,38,8:37)]
+    glimpse( exposure_all)
+    exposure_all$TCGA.Study <- as.character(exposure_all$TCGA.Study)
+    
+    colnames(exposure_all)[7:8] <- c("samplename","Types")
+    colnames(exposure_all)[1:6] <- paste0("EVO_signature ",1:6)
+    colnames(exposure_all)[9:38] <- paste0("SNV_signature ",c(1:30))
+    glimpse(exposure_all)
+    
+    exposure_all <- left_join(exposure_all,post_summary_new,by="samplename")
+    save(exposure_all,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/TCGA_6077_0-1_LCD_exposure_with_snv_sig_2019-10.24.RData")
+    
+    
+    #save(evoSigExpoDf_snv_expo,file="/home/xinyu/Work/Phd/NAS/Test_ccube/NMF_result/ICGC2417+TCGA5763_0-200_fraction_6.23/TCGA_5763_fraction_0-2_with_samplename_with_snv_expo_v7.23.RData")
+    
+    ### No need for Normalization
+    #Absolutely not, correlation analysis describe the nature of the relationship between two variables what ever the range and the measurement units of them.
+
+    remove(cor_table)
+    for (i in 9:38){
+      library(reshape2)
+      varcol <- i
+      varname <-colnames(exposure_all)[varcol]
+      #colnames(evoSigExpoDf_snv_expo)[10] <- "Types"
+      #colnames(evoSigExpoDf_snv_expo)[11] <- "Full"
+      varlabel <- varname
+      # file <- newdata4[,c(8:15,1:7,16:17)]
+      table <- heatmap_plot(exposure_all,varcol=varcol,n_sig=6)
+      table$SNV_sig <- varname
+      if (i==9) cor_table <- table else cor_table <- rbind(cor_table,table)
+      print(paste0("finish ",i," th signature"))
+    }
+    
+    write.csv(t(exposure_all),file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/exposure_all.csv")
+    ### delete types <= 30
+    type_n <- exposure_all %>%
+      group_by(Types) %>%
+      dplyr::summarise(n=n() )
+    type_lar30 <- type_n[which(type_n$n>=30),]$Types
+    exposure_all <- subset(exposure_all, Types %in% type_lar30)
+    which(colnames(exposure_all)=="Lymphocytes")
+    file <- exposure_all
+    heatmap_plot(file,varcol=109,n_sig=6) [[1]]
+    p_10 <- heatmap_plot(file,varcol=10,n_sig=6)    
+    p_11 <- heatmap_plot(file,varcol=11,n_sig=6)  
+    p_12 <- heatmap_plot(file,varcol=12,n_sig=6)  
+    p_13 <- heatmap_plot(file,varcol=13,n_sig=6)
+    p_14 <- heatmap_plot(file,varcol=14,n_sig=6)
+    p_15 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_16 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_17 <- heatmap_plot(file,varcol=15,n_sig=6)
+    p_69 <- heatmap_plot(file,varcol=69,n_sig=6)
+    p_69 <- heatmap_plot(file,varcol=116,n_sig=6)
+    
+    heatmap_plot <- function(file,varcol,n_sig){     
+      
+      library(RColorBrewer)
+      library(ggplot2)
+      library(psych)
+      library(plyr)
+      
+      ### Basic correlation function per type
+      corr_spearman_type <- function(xx,n_sig=n_sig,varcol=varcol,output="r"){
+        col <- function(data,n_sig,varcol){
+          return(corr.test(data[,1:n_sig],data[,varcol],method = "spearman",use = "complete",adjust="holm"))
+        }
+        r_commands <- paste0("r <- data.frame(",paste0("cor=col(xx,",n_sig,",",varcol,")[['r']]",collapse=","),")")
+        p_commands <- paste0("p <- data.frame(",paste0("p=col(xx,",n_sig,",",varcol,")[['p']]",collapse=","),")")
+        n_commands <- paste0("n <- data.frame(",paste0("n=col(xx,",n_sig,",",varcol,")[['n']]",collapse=","),")")
+        eval(parse(text=r_commands))
+        eval(parse(text=p_commands))
+        eval(parse(text=n_commands))
+        if (output=="r") return(r)
+        if (output=="p") return(p)
+        if (output=="n") return(n)
+      }
+      
+      
+      ### Correlation between single measure across cancer types
+      my_function <- function(file,varcol,n_sig,output="r")   {
+        data <- file[which(!is.na(file[,varcol])),]
+        if (nrow(data)<=2) {
+          data <- NULL
+        }
+        else {
+          data <- as.data.frame(t(corr_spearman_type(file,n_sig=n_sig,varcol=varcol,output=output)))
+          if (ncol(data)==n_sig) colnames(data) <- paste0("sig_",1:n_sig)
+          if (ncol(data)==1) colnames(data) <- "n_sample"
+        }
+        
+        return(data)
+      }
+      
+      cor_r_type <- ddply(file, .(Types), .fun =my_function, varcol=varcol,n_sig=n_sig)
+      xx_r <- melt( cor_r_type,id="Types")
+      cor_p_type <- ddply(file, .(Types), .fun =my_function,varcol=varcol,n_sig=n_sig,output="p")
+      xx_p <- melt( cor_p_type,id="Types")
+      cor_n_type <- ddply(file, .(Types), .fun =my_function,varcol=varcol,n_sig=n_sig,output="n")
+      xx_cor <- left_join(xx_r,xx_p,by=c("Types","variable"))
+      xx_cor <- left_join(xx_cor,cor_n_type,by="Types")
+      colnames(xx_cor)[3:5] <- c("r","p","n_sample")
+      xx_cor[which(xx_cor$p>0.05),]$r <- 0
+      
+      coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+      #display.brewer.pal(n=256,name="RdBu")
+      varlabel <- colnames(file)[varcol]
+      
+      p1 <- ggplot(data=xx_cor,mapping=aes(x=Types,y=variable,fill=r)) + geom_tile() + #ggplot need each value be a rows in the new datasets
+        scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+        geom_text(aes(x=Types,y=variable,label=round(r,2)),size=3,col="#ffffff")+
+        labs(subtitle = paste0(varlabel))+
+        annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
+        ylab("Evolutionary Signatutres")+xlab("TCGA Types")+
+        theme(axis.text.x = element_text(angle = 30, hjust = 1,size=10),
+              axis.text.y=element_text(size=10),
+              legend.position = "right",legend.text = element_text(size=6),
+              legend.title = element_text(size=10,face="bold"),
+              axis.title.y = element_text(size=12,face="bold"),
+              plot.margin = unit(c(3,1,1,1),"lines"))+ 
+        coord_cartesian(ylim=c(1,n_sig+0.4))
+      
+      return(list(p1,xx_cor))
+    }
+    
+    library(reshape2)
+    
+    cor_table[which(is.na(cor_table$r)),c("r","p")] <- 0
+    cor_table[which(cor_table$p>0.05),]$r <- 0
+    cor_table <- cor_table[-which(cor_table$n_sample <30),]
+    coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+    #display.brewer.pal(n=256,name="RdBu")
+    
+    brewer.pal(8, "Set3")
+    ############ n_sample
+    dat_text <- unique(cor_table[,c("Types","n_sample")])
+    ##########
+    par(bg = 'white')
+    p2 <- ggplot(data=cor_table) + geom_tile(aes(x=variable,y=SNV_sig,fill=r),colour = "white") +  facet_grid(rows = vars(Types))+
+      scale_fill_gradient2(low="indianred2",mid="#ffffff",high="turquoise4",midpoint = 0,name="Correlation\n(spearman)")+
+      #scale_x_discrete(expand = c(0, 0),position="bottom", labels=label_sample) +
+      scale_y_discrete(expand = c(0, 0),position = "right") + coord_flip()+
+      theme(axis.text.y = element_text(size=4),
+            axis.title.y = element_blank(),
+            axis.text.x = element_text(size=4,hjust=0.5,face="bold",angle = 90),
+            axis.ticks.x = element_blank(),
+            axis.ticks.y = element_blank(),
+            panel.grid.minor.x = element_blank(),
+            legend.position="right", 
+            legend.key.size = unit(0.2, "cm"),
+            legend.text = element_text(size=5),
+            legend.title = element_text(size=6),
+            #strip.text.y = element_blank(),
+            plot.margin = margin(0.2, 0.05, 0.04, 0.2, "cm"),
+            strip.background.y = element_blank())+ ylab("") + xlab("")+
+      geom_text(aes(x=variable,y=SNV_sig,label=round(r,2)),size=0.8,col="#ffffff") + 
+      geom_text(data= dat_text,mapping = aes(x = 1, y = Inf,label = n_sample),size=1,hjust=1)
+    
+    write.csv(cor_table,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/SNV_sig_evo_cor_table.csv")
+    
+  
+    
+    
+    display.brewer.pal(8, "Set3")[1]
+    brewer.pal(8, "Set3")[4]
+    
+    grid.arrange(g1,p2,nrow=1,widths = c(1,3.3))
+    
+    p_9 <- heatmap_plot(file,varcol=9,n_sig=6) 
+    
+    which("c" %in% )
+    post_summary_new[which(lengths(post_summary_new$TCGA.Study)>1),]$TCGA.Study <-  as.character(lapply(post_summary_new[which(lengths(post_summary_new$TCGA.Study)>1),]$TCGA.Study,function(x) x[2]))
+    save(post_summary_new,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_summary_6077_mincount30_2019-10-22.RData")
+    write.csv(post_summary_new,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/TCGA_summary_6077_mincount30_2019-10-22.csv")
+    
+  }
+  
+############# 2019.11.4 Comparision with sottoriva dataset (CRCs) ##########################
+    library(readxl)
+    crc <- read_xls("/home/xinyu/Work/Phd/Articles supplement/Nature genetics/2016-Identification_of_neutral_tumor_evolution_across_cancer_types/CRCs_whole_exome.xls")
+  
+    crc$tumourName <- sapply(crc$tumourName,function(x) substr(x,5,16))
+    colnames(crc)[3] <- "samplename"
+  
+    save(crc,file="/home/xinyu/Work/Phd/Articles supplement/Nature genetics/2016-Identification_of_neutral_tumor_evolution_across_cancer_types/CRCs_whole_exome.RData")
+    
+    crc_exposure <- left_join(crc,exposure_all,by="samplename")        
+    
+    save(crc_exposure,file="/home/xinyu/Work/Phd/Articles supplement/Nature genetics/2016-Identification_of_neutral_tumor_evolution_across_cancer_types/CRCs_whole_exome_with_evo_exposure.RData")
+    
+    ### summary NA
+    t1 <- table(data=crc_exposure[which(is.na(crc_exposure$`EVO_signature 1`)),]$subtype)
+    t2 <- table(data=crc_exposure[-which(is.na(crc_exposure$`EVO_signature 1`)),]$subtype)
+    t3 <- data.frame(rbind(t1,t2),row.names = c("NA","Matched"))
+    t3$col_sum <- t3$MSI+t3$MSS    
+    
+    ## Plot exposure
+    glimpse(crc_exposure)
+    crc_plot <- crc_exposure[,2:11]
+    glimpse(crc_plot)
+    crc_plot <- crc_plot[!is.na(crc_plot$`EVO_signature 1`),]
+    crc_plot[,4:9] <- t(apply(crc_plot[,4:9],1,function(x) x/sum(x)))
+    xx <- melt(crc_plot,id=c("subtype","samplename","numVariants","Types"))
+
+    my_color <- brewer.pal(8, "Set3")[c(7,1,5,3,6,4,2,8)]
+    
+    crc_plot$neutral <- crc_plot$`EVO_signature 1`+crc_plot$`EVO_signature 2`
+    order <- order(crc_plot$neutral,decreasing = T)
+    
+    ## scale="free_x", set differebt x axis between different facet
+    ggplot(xx,aes(x=samplename,y=value,fill=variable)) 
+   
+    ### rewrite for pipeline
+    library(tidyverse)
+    install.packages("tidytext")
+    library(tidytext)
+    
+    setRepositories()
+    ap <- available.packages()
+    "tidytext" %in% rownames(ap)
+    xx %>%
+      ggplot(aes(x=reorder_within(samplename,desc(value),subtype),y=value,fill=variable))+geom_bar(position="fill",stat = "identity") + 
+      scale_x_discrete(limits=crc_plot[order,]$samplename)+
+      facet_grid(vars(subtype)~variable,space="free",scales = "free",drop = TRUE, shrink = TRUE)+ylab("Contribution")+
+      theme(axis.text.x = element_text(angle=90))+
+      scale_fill_manual(values = my_color)+guides(fill=guide_legend(title="Evolutionary Dynamics Signatures"))
+    
+    # xx %>%
+    #   ggplot(aes(x=samplename,y=value))+geom_bar(stat = "identity") + 
+    #   #scale_x_discrete(limits=crc_plot[order,]$samplename)+
+    #   facet_grid(subtype~variable,scales = "free_x")+ylab("Contribution")+
+    #   theme(axis.text.x = element_text(angle=90))+
+    #   scale_fill_manual(values = my_color)+guides(fill=guide_legend(title="Evolutionary Dynamics Signatures"))
+
+############# 2019.11.4 Comparision with sottoriva dataset (CRCs) scatterplot r^2 and exposure ##########################  
+    library(stringr)
+    crc <- read_xls("/home/xinyu/Work/Phd/Articles supplement/Nature genetics/2016-Identification_of_neutral_tumor_evolution_across_cancer_types/Supplementary Data Set 1: Pan-cancer whole-exome data set..xls")
+    
+    crc[which(str_detect(crc$tumourName,".TCGA")),]$tumourName <- sapply( crc[which(str_detect(crc$tumourName,".TCGA")),]$tumourName,function(x) substr(x,6,17))
+    crc[-which(str_detect(crc$tumourName,".TCGA")),]$tumourName <- sapply( -crc[which(str_detect(crc$tumourName,".TCGA")),]$tumourName,function(x) substr(x,5,16))
+    colnames(crc)[3] <- "samplename"
+    
+    ## Match and compute NAs
+    library(dplyr)
+    crc_exposure <- left_join(crc,exposure_all,by="samplename")    
+    table(is.na(crc_exposure$`EVO_signature 1`))  
+    
+    ## Filter targeted dataset
+    which(colnames(crc_exposure)=="Types")
+    glimpse(crc_exposure)
+    crc_plot <- crc_exposure[,c(3,4,8,9,26:32)]
+    glimpse(crc_plot)
+    crc_plot <- crc_plot[!is.na(crc_plot$`EVO_signature 1`),]
+    crc_plot[,5:10] <- t(apply(crc_plot[,5:10],1,function(x) x/sum(x)))
+    
+    ## Scatter Plot for r squared vs evolutionary dynamics exposure
+    glimpse(crc_plot)
+    library(reshape2)
+    library(RColorBrewer)
+    library(ggplot2)
+    xx <- melt(crc_plot,id=c("r2.all","mu.m.all","samplename","numVariants","Types"))
+    glimpse(xx)
+    
+    my_color <- brewer.pal(8, "Set3")[c(7,1,5,3,6,4,2,8)]
+    
+    install.packages("ggforce",)
+    library(ggforce)
+    ggplot(xx,aes(x=value,y=r2.all,color=variable)) + geom_point() +galt::geom_encircle(size=1.6)
+    ggplot(xx,aes(x=value,y=mu.m.all,color=variable)) + geom_point() + facet_grid(.~variable)
+    
+######################### 2019.11.6 Integrated correlation analysis
+    library(readxl)
+    measure <- read_xls("/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/Integrated_correlation_measures.xls",sheet = 2)
+    
+    d_plot <- exposure_all %>%
+      select(starts_with("Evo"),"samplename","Types",measure$Measures)
+
+    glimpse(d_plot)
+    
+    ## Produce cor_table for types, all and average
+    p_10 <- heatmap_plot_multi_variable(d_plot,varcol=9:31,n_sig=6,minsample=30)    
+    p_all <- heatmap_plot_multi_variable(d_plot,varcol=9:31,n_sig=6,Type=F)    
+    
+    which(p_10$n_sample<30)
+    p_ave <- p_10 %>%
+      group_by(variable,varlable) %>%
+      dplyr::summarize(value=mean(r))
+    colnames(p_ave)[3] ="r"
+    colnames(p_ave)[5] = "n_sample"
+    p_ave$Types = "Avg"
+    p_ave$p =0
+    p_ave$n =0
+    p_ave <- p_ave[,c(4,1,3,5,6,2)]
+    p_ave <- as.data.frame(p_ave)
+    glimpse(p_all)
+    p_overall <- rbind(p_10,p_all,p_ave)
+    #save(p_overall,file= "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/11.7_Integrated_correlation_cortable.RData")
+    ## Ready to plot
+    coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+    par(bg = 'white')
+    
+    p1 <- ggplot(p_overall,aes(x=Types,y=varlable,fill=r))+geom_tile()+facet_grid(rows = vars(variable))+
+      scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+      geom_text(aes(x=Types,y=varlable,label=round(r,2)),size=3,col="#ffffff")+
+      #labs(subtitle = paste0(varlabel))+
+      #annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
+      ylab("")+xlab("")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1,size=10),
+            axis.text.y=element_text(size=10),
+            legend.position = "right",legend.text = element_text(size=6),
+            legend.title = element_text(size=10,face="bold"),
+            axis.title.y = element_text(size=12,face="bold"),
+            plot.margin = unit(c(3,1,1,1),"lines"),panel.background = element_rect(fill = "white",colour = "grey",size = 0.5, linetype = "solid"),
+            panel.grid.minor.y = element_blank(),
+            strip.text.y = element_text(color="white",size=12))
+    #coord_cartesian(ylim=c(1,n_sig+0.4))
+    
+   
+    g1 <- ggplotGrob(p1)
+    my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+    ### change the color of facet strips
+    library(grid)
+    
+    strip_both <- which(grepl('strip-', g1$layout$name))
+    k <- 1
+    
+    for (i in strip_both) {
+      j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+      g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
+      k <- k+1
+    }
+    grid.draw(g1)
+    
+    ############# facet type ###############
+    p2 <- ggplot(p_overall,aes(x=variable,y=varlable,fill=r))+geom_tile()+facet_grid(cols = vars(Types))+
+      scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+      geom_text(aes(x=variable,y=varlable,label=round(r,2)),size=3,col="#ffffff")+
+      #labs(subtitle = paste0(varlabel))+
+      #annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
+      ylab("")+xlab("")+
+      theme(axis.text.x = element_text(angle = 45, hjust = 1,size=10),
+            axis.text.y=element_text(size=10),
+            legend.position = "right",legend.text = element_text(size=6),
+            legend.title = element_text(size=10,face="bold"),
+            axis.title.y = element_text(size=12,face="bold"),
+            plot.margin = unit(c(3,1,1,1),"lines"),panel.background = element_rect(fill = "white",colour = "grey",size = 0.5, linetype = "solid"),
+            panel.grid.minor.y = element_blank(),
+            strip.text.y = element_text(color="white",size=12))
+    #coord_cartesian(ylim=c(1,n_sig+0.4))
+    
+    
+    g1 <- ggplotGrob(p1)
+    my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+    ### change the color of facet strips
+    library(grid)
+    
+    strip_both <- which(grepl('strip-', g1$layout$name))
+    k <- 1
+    
+    for (i in strip_both) {
+      j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+      g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
+      k <- k+1
+    }
+    grid.draw(g1)  
+
+#############  2019.11.7 ICGC Validation
+    
+    ## 1.Build post summary for ICGC data
+    ICGC_input <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/ICGC/"
+    output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/"
+    
+    ICGC_post_summary <- Build_post_summary(ICGC_input,output = output)  
+    
+    save(ICGC_post_summary,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/ICGC_post_summary_2778.RData")
+    
+    ## 2.Construct Count Matrix
+    write.csv(sampleHistoTypeMatching,"/home/xinyu/Work/Phd/NAS/Test_ccube/full_sample_summary_TCGA_ICGC_191107.csv")
+    write.csv(ptype,"/home/xinyu/Work/Phd/NAS/Test_ccube/full_sample_summary_ICGC_191107.csv")    
+    
+    ## 3.Rank estimate
+    
+    ## 4.Hierarchical clustering
+    output <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30_v3.0/"
+    input_folder <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/11.7_ICGC_type_0-1_100_minsample30/"
+    rank_estimate <- read_xlsx("/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/rank_estimate/11.7_ICGC_type_0-1_100_minsample30/rank_summary.xlsx")
+    
+    
+    nmf_sig_all_plot(cancertype,input_folder=input_folder,output=output,rank_summary=rank_estimate)
+    ###########################################################
+    ### --- Step5: Combine all the nmf sig and exposure ---####
+    combine_input <- "/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30_v3.0/"
+    
+    library(readxl)
+    rank_estimate <- read_xlsx("/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/rank_estimate/11.7_ICGC_type_0-1_100_minsample30/rank_summary.xlsx")
+    
+    cancertype <-  rank_estimate$Type
+    combine_sig <- combine_nmf(input_folder= combine_input,cancertype=cancertype,return="sig")
+    
+    
+    sig1 <- apply(combine_sig,2,function(x) x/sum(x))
+    colSums(sig1)
+    ### --- Step6: Hierarchical Clustering ----- ####
+    # in a type first
+    #install.packages("NbClust")
+    # then across cancer types
+    library(NbClust)
+    library("RColorBrewer")
+    library("pheatmap")
+    library(factoextra)
+    #install.packages("factoextra",dependency=T)
+    
+    # res <- NbClust(data=sig1,distance = "manhattan",min.nc=2, max.nc=6, 
+    #                method = "kl")
+    # 
+    # res$Best.nc
+    # res$All.index
+    # res$Best.partition
+    # 
+    # ### manually test all methods
+    # lista.methods = c("kl","ch","hartigan",
+    #                   "cindex","db","silhouette","ratkowsky","ball",
+    #                   "ptbiserial","gap", "frey", "mcclain",  "gamma", "gplus", "tau", "dunn", 
+    #                   "sdindex", "sdbw") # "hubert","dindex"
+    # lista.distance = c("metodo","euclidean", "maximum", "manhattan", "canberra")
+    # 
+    tabla = as.data.frame(matrix(ncol = length(lista.distance), nrow = length(lista.methods)))
+    names(tabla) = lista.distance
+    
+    for (j in 2:length(lista.distance)){
+      for(i in 1:length(lista.methods)){
+        print(i)
+        nb = NbClust(sig1,distance = lista.distance[j],
+                     min.nc = 2, max.nc = 6, 
+                     method = "complete", index =lista.methods[i])
+        tabla[i,j] = nb$Best.nc[1]
+        tabla[i,1] = lista.methods[i]
+        
+      }}
+    
+    table(tabla[,5])
+    
+    ##############
+  
+    type <- data.frame(sapply(colnames(sig1),function(x) strsplit(x,"_")[[1]])[1,])
+    colnames(type) <- "cancertype"
+    
+    breaksList = seq(0, 0.1, by = 0.01)
+    col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
+    
+    # myCol = list(cancertype=c(BLCA="pink1", BRCA="violet", CESC="mediumpurple1", COAD="slateblue1", DLBC="purple", ESCA="purple3",
+    #                           GBM="turquoise2", HNSC="skyblue", KIRC="blue2", LGG="navyblue",
+    #                           LIHC="orange", LUAD="tomato", LUSC="coral2", OV="palevioletred", PAAD="violetred", PRAD="red2",
+    #                           READ="springgreen2", SARC="palegreen4",
+    #                           SKCM="wheat2", STAD="tan", UCEC="tan3", UVM="brown",
+    #                           KIRP="grey70"))
+    
+    # newCols <- colorRampPalette(grDevices::rainbow(length(unique(type$cancertype))))
+    # mycolors <- c('#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe', '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080', '#ffffff', '#000000','#003300','#B0C4DE',	'#FF4500')
+    # names(mycolors) <- unique(type$cancertype)
+    # mycolors <- list(cancertype = mycolors)
+    
+    out <- pheatmap(sig1, cutree_cols = 6, fontsize_col = 5,fontsize_row = 0.4,color = col, 
+                    breaks = breaksList,clustering_distance_cols="euclidean",
+                    cluster_rows=F)
+    #annotation_col = type, annotation_colors=  mycolors,
+    #35 - pheatmap cannot deal with reordering since it do not provide option for this
+    length(colnames(sig1[,out$tree_col[["order"]]]))
+    colnames(sig1[,out$tree_col[["group"]]])
+    colnames(sig1)[out$colInd]
+    
+    sig_label <- as.data.frame(t(combine_sig))
+    sig_label$cluster <- NA
+    #euclidean
+    sig_label[out$tree_col[["order"]][1:4],]$cluster <- "1"
+    sig_label[out$tree_col[["order"]][5:33],]$cluster <- "2"
+    sig_label[out$tree_col[["order"]][34:36],]$cluster <- "3"
+    sig_label[out$tree_col[["order"]][37:46],]$cluster <- "4"
+    sig_label[out$tree_col[["order"]][47:99],]$cluster <- "5"
+    sig_label[out$tree_col[["order"]][100:133],]$cluster <- "6"
+    
+    #save(sig_label,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Input_folder/9.22_Combine_sig_HClust_result.RData")
+    sig_label[,1:100] <- as.numeric(unlist(sig_label[,1:100]))
+    write.csv(sig_label,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30_v3.0/hc_sig_label_canberra.csv")
+    
+    sig_label <- read.csv(file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30_v3.0/hc_sig_label.csv")[,-1]
+    consensus_sig <- sig_label %>%
+      group_by(cluster) %>%
+      summarise_all(mean)
+    
+    plot_consensus <- apply(t(consensus_sig[,2:101]),2,as.numeric)
+    
+    lcd_sig <- plot_consensus[,c(1:4,6,5)] 
+    sig_plot(  consensus_sig[,2:101])
+    save(  consensus_sig ,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/11.25_ICGC_type_0-1_100_minsample30_v3.0/consensus_sig_canberra.RData")
+    
+    save(lcd_sig,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/lcd_sig_2019-09-22.RData")
+    
+    # ### Frequency heatmap
+    # sig_fre <- as.data.frame(sig_label$cluster)
+    # sig_fre$sig <- unlist(rownames(sig_label))
+    # sig_fre$type <- sapply(sig_fre$sig,function(x) strsplit(x,"_")[[1]])[1,]
+    # colnames(sig_fre)[1] <- "Signature"
+    # 
+    # library(dplyr)
+    # data <- sig_fre %>%
+    #   group_by(type) %>%
+    #   mutate(`Sig_1` = "1" %in% Signature, `Sig_2` = "2" %in% Signature,`Sig_3` = "3" %in% Signature,`Sig_4` = "4" %in% Signature,`Sig_5` = "5" %in% Signature,`Sig_6` = "6" %in% Signature)
+    # 
+    # data <- unique(data[,3:9])
+    # xx <- melt(data,id="type")
+    # ggplot(data=xx,aes(x=variable,y=type)) + geom_tile(aes(fill=value,color=var(signature)),colour = "white") + theme_grey()+
+    #   scale_x_discrete(expand = c(0, 0))+ ylab("")+xlab("")+
+    #   scale_y_discrete(expand = c(0, 0))+
+    #   scale_fill_manual(values = c("FALSE" = "azure1", "TRUE" = "aquamarine4"))+
+    #   scale_x_discrete(position = "top") +
+    #   theme(axis.ticks.x.top = element_blank(),axis.ticks.y.left = element_blank())+coord_equal()
+    # 
+    # xx_new <- xx
+    # xx_new <- xx_new[-which(xx_new$value == FALSE),]
+    # p1 <- ggplot(data=xx_new,aes(x=type,y=value)) + geom_tile(aes(fill=variable),colour = "white") +
+    #   facet_grid(rows = vars(variable))+ ylab("Evolutionary Signature")+xlab("")+theme_grey()+
+    #   scale_y_discrete(expand = c(0, 0))+ 
+    #   scale_fill_manual(values = my_color)+
+    #   scale_x_discrete(position = "top") +
+    #   theme(axis.ticks.x.top = element_blank(),
+    #         axis.ticks.y.left = element_blank(),
+    #         axis.text.y.left = element_blank(),
+    #         axis.text.x = element_text(size=9),
+    #         panel.grid.minor.y = element_blank(),
+    #         strip.text.y = element_text(color="white",size=8),
+    #         legend.position = "none")+coord_equal()
+    # 
+    # g1 <- ggplotGrob(p1)
+    # 
+    # ### change the color of facet strips
+    # library(grid)
+    # 
+    # strip_both <- which(grepl('strip-', g1$layout$name))
+    # k <- 1
+    # 
+    # for (i in strip_both) {
+    #   j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+    #   g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
+    #   k <- k+1
+    # }
+    # grid.draw(g1)
+    
+    ### --- Step8: LCD 
+    if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+    
+    BiocManager::install("YAPSA")
+    library(YAPSA)
+    
+    consensus_fractionmatrix <- read.csv("/home/xinyu/Work/Phd/NAS/Test_ccube/Output/Count_Matrix/9.20_TCGA_type_0-1_100_mincount30_minsample30/consensus/TCGA_6077_0-1_fractionMatrix_2019-09-23.csv")[,-1]
+    lcd_sig <- t(consensus_sig[,2:101])
+    exposure <- YAPSA::LCD(consensus_fractionmatrix,lcd_sig)
+    exposure <- as.data.frame(t(exposure))
+    colnames(exposure) <- paste0("sig_",1:6)
+    write.csv(exposure,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/exposure_LCD_6077_9.23.csv")
+    
+    save(consensus_sig,file="/home/xinyu/Work/Phd/NAS/Test_ccube/Output/NMF_result/9.22_TCGA_type_0-1_100_mincount30_minsample30/consensus/sig_hclust-cluster_6077_9.22.csv")
+    

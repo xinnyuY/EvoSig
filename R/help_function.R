@@ -1,5 +1,8 @@
-load_ccf <-
-function(samplename,input){
+#' Load multiple format ccf file
+#' @param samplename cancer type
+#' @param input 
+#' @return ssm
+load_ccf <- function(samplename,input){
   Check <- ArgumentCheck::newArgCheck()
   suppressWarnings(rm(ssm,res,ccubeRes))
   
@@ -27,8 +30,10 @@ multi.dir.create <- function(list){
   for (i in list) {if (!dir.exists(i)) dir.create(i,recursive = T)}
 }
 
-file_format <-
-  function(filename=filename,samplenamecol){
+#' Unify format of data frame 
+#' @param filename data frame
+#' @param samplenamecol column index of samplename
+file_format <- function(filename=filename,samplenamecol){
     names <- colnames(filename)
     names[samplenamecol] <- "samplename"
     names -> colnames(filename)
@@ -37,9 +42,10 @@ file_format <-
     return(filename)
   }
 
-ParseSnvCnaPcawgFormat <-
-  function (ssm, cna) {
-    library(dplyr)
+#' Merge ssm and cna files
+#' @param ssm ssm
+#' @param cna cna
+ParseSnvCnaPcawgFormat <- function (ssm, cna) {
     
     ssm <- ssm %>%
       mutate(chr= substr(chr,4,length(chr)),

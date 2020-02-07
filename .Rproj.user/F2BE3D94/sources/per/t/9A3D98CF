@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1581015059242.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "171|98|222|0|\n",
+    "hash" : "2973076697",
+    "id" : "9A3D98CF",
+    "lastKnownWriteTime" : 1581033887,
+    "last_content_update" : 1581033945420,
+    "path" : "D:/Project/Xinyu/EvoDynamicsSignature/R/Association_heatmap.R",
+    "project_path" : "R/Association_heatmap.R",
+    "properties" : {
+        "cursorPosition" : "8,0",
+        "scrollLine" : "0",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 4,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

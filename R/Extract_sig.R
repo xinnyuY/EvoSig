@@ -1,10 +1,10 @@
 
-# YAPSA::LCD
+#' Perform NMF with consensus signature
+#' @param ccfMat ccf matrix for all samples
+#' @param consensus_sig consensus signature matrix
+#' @param samplelist input sample list
+#' @return exposure
 Extract_sig <- function(ccfMat,consensus_sig,samplelist){
-    if (!requireNamespace("BiocManager", quietly = TRUE))
-      install.packages("BiocManager")
-    if (!requireNamespace("YAPSA", quietly = TRUE))
-      BiocManager::install("YAPSA")
     
     n_sig <- nrow(consensus_sig)
     

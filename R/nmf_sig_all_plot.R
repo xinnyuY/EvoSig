@@ -1,19 +1,20 @@
-#' Plot signature
+library(gridExtra)
+library(ggplot2)
+library(RColorBrewer)
+library(grid)
+library(dplyr)
+library(reshape2)
+library(cowplot)
+library(magrittr)
+library(NMF)
+
+
+#' Plot signature matrix
 #' @param sig signature matrix
 #' @return mydata mutation data frame
 #' @export
-
-
 sig_plot <- function(sig){
-  library(gridExtra)
-  library(ggplot2)
-  library(RColorBrewer)
-  library(grid)
-  library(dplyr)
-  library(reshape2)
-  library(cowplot)
-  library(magrittr)
-  
+ 
   xx <- as.data.frame(t(apply(sig,2,function(x) x/sum(x)))) %>%
     set_colnames(1:ncol(.)) %>%
     mutate(signature=paste0("Signature ",1:nrow(.))) %>%
@@ -45,35 +46,40 @@ sig_plot <- function(sig){
     k <- k+1
   }
   grid.draw(g1)
-  #output sig and expo
   return(g1)
 }
 
+#' Perform nmf for a cancer type
+#' @param type cancer type
+#' @param MatType matrix type
+#' @param input_folder ccf file path
+#' @param output output file path
+#' @param rank rank
+#' @return save nmf results in output folder and plot signature for this type
 nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
-  if (!requireNamespace("NMF", quietly = TRUE)) install.packages("NMF")
-  library(NMF)
   
   type_path <- paste0(input_folder,type,"/")
-  if (MatType=="fraction"){
-    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir( type_path))])
-  } 
   
-  if (MatType=="count"){
-    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir( type_path))])
-  }
+  if (MatType=="fraction") 
+    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir(type_path))])
+  
+  if (MatType=="count")
+    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir(type_path))])
   
   samplename_path <- paste0(input_folder,type,"/",dir(type_path)[grep("samplelist",dir(type_path))]) 
   
   if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
   
   load(file=file_path)
+  
   samplename <- as.character(read.csv(file=samplename_path)[,-1])
+  
   n_sample <- length(samplename)
   
   #format rank summary file
   
-  if (exists("ccfFractionMatrix")) ccfMat <- ccfFractionMatrix
-  if (exists("ccfCountsMatrix")) ccfMat <- ccfCountsMatrix
+  ccfMat <- ccfFractionMatrix
+  #if (exists("ccfCountsMatrix")) ccfMat <- ccfCountsMatrix
   
   index <- sample(1:ncol(ccfMat))
   ccfMat <- ccfMat[,index]
@@ -83,7 +89,6 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   index_p <- which(rowSums(ccfMat)>0)
   index_n <- which(!rowSums(ccfMat)>0)
   ccfMat <- ccfMat[which(rowSums(ccfMat)>0),]
-  
   
   #run NMF
   res <- nmf(ccfMat,rank,.opt='vp4')
@@ -98,76 +103,74 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   p_sig <- sig_plot(sig)
   
   #output sig and expo
-  expo <- as.data.frame(t(expo)) %>%
-    cbind(.,samplename_random) 
+  expo <- as.data.frame(t(expo)) %>% cbind(.,samplename_random) 
   colnames(expo)[1:rank] <- paste0("sig_",1:rank)
   
   save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
   save(sig,file=paste0(output,type,'/',type,'_',n_sample,"_sig_",Sys.Date(),".RData"))
   save(res,file=paste0(output,type,'/',type,'_',n_sample,"_res_",Sys.Date(),".RData"))
   
-  
   return(list(p_sig,n_sample))
 }
 
-nmf_sig_all_plot <-
-function(input_folder,output,rank_summary) {
-  library(gridExtra)
-  library(ggplot2)
-  library(grid)
-  library(dplyr)
-  library(reshape2)
-  library(cowplot)
-  library(NMF)
+#' Perform nmf for multiple cancer types
+#' @param input_folder ccf file path
+#' @param output output file path
+#' @param rank_summary rank summary file
+#' @return save nmf results in output folder and plot signature for all cancer types
+#' @export
+nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
   
   if (!dir.exists(output)) dir.create(output)
   
   colnames(rank_summary) <- c("cancertype","rank")
+  
   cancertype <- as.character(rank_summary$cancertype)
  
   j = 0
+  
   for (i in 1:length(cancertype)) {
     tryCatch({
-    type <- cancertype[i]
-   
-    print(paste0("load ",i,"th type - ",type))
+      type <- cancertype[i]
+      print(paste0("load ",i,"th type - ",type))
+      
+      rank = as.numeric(subset(rank_summary,cancertype == type)$rank)
+      
+      nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank=rank)
+      
+      p_sig <- nmf_result[[1]]
+      n_sample <- nmf_result[[2]]
     
-    rank = as.numeric(subset(rank_summary,cancertype == type)$rank)
-    
-    nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank=rank)
-    
-    p_sig <- nmf_result[[1]]
-    n_sample <- nmf_result[[2]]
-  
-    p <- plot_grid(p_sig)
-    title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",n_sample," samples "),fontface='bold')
-    j <- j+1
-    commands <- paste0("p",j," <- plot_grid(title,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
-    eval(parse(text=commands))
-    },error = function(e) print(paste0("Failed run NMF on this type")))
+      p <- plot_grid(p_sig)
+      
+      title <- ggdraw() + draw_label(paste0("Extracting Signatures for ",type," with ",n_sample," samples "),fontface='bold')
+      
+      j <- j+1
+      
+      commands <- paste0("p",j," <- plot_grid(title,p,align='V',ncol=1,rel_heights = c(0.1,0.15,0.65))")
+      eval(parse(text=commands))
+      
+      },error = function(e) print(paste0("Failed run NMF on this type")))
   }
-    #plot_grid(p1)
     
     ntype <- length(cancertype)
     
+    # output signature plot for all cancer types
     n_file <-  j %% 8
-    
     if (n_file==0) n_pdf <- (j %/% 8) else
       n_pdf <- (j %/% 8)+1
     
     for (i in 1:n_pdf){
-     
       if (i != n_pdf) {
         commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-7),"-",8*i,"_',Sys.Date(),'.pdf'),height=25,width=12)")
         commands2 <- paste0("g",i,"<- plot_grid(",paste0("p",(8*i-7):(8*i),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") 
       } else {
-        
         commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-8),"-",8*i-8+n_file,"_',Sys.Date(),'.pdf'),height=25,width=12)")
         commands2 <- paste0("g",i," <- plot_grid(",paste0("p",(8*i-8):(8*i-8+n_file),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))")
       }
-      
       commands3 <- paste0("print(g",i,")")
       commands4 <- "dev.off()"
+      
       eval(parse(text=commands1))
       eval(parse(text=commands2))
       eval(parse(text=commands3))

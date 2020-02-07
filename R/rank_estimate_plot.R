@@ -1,5 +1,4 @@
-rank_estimate_plot <-
-function(outputFolder,rankfilepath) {
+rank_estimate_plot <- function(outputFolder,rankfilepath) {
   library(ggplot2)
   library(ggpubr)
   library(gridExtra)
