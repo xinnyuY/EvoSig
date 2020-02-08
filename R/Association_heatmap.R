@@ -54,7 +54,7 @@ cor_evoSig <- function(file,varcol,n_sig,output="r")   {
 #' @param minsample the minimun samples
 #' @param Type Specify whether to compute correlation for each cancer type
 #' @return a data frame containing the summary for all samples in the ccf files
-#' @importFrom plyr ddply
+#' @importFrom plyr ddply "."
 #' @import dplyr
 heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_pl0.05 = FALSE,minsample=minsample,Type){     
  
@@ -91,7 +91,7 @@ heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_
   ###Set the background color to white / makes the background white
   par(bg = 'white')
   
-  coul = RColorBrewer::colorRampPalette(brewer.pal(8, "RdBu"))(256)
+  coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
   
   p1 <- ggplot(data=xx_cor,mapping=aes(x=cancertype,y=variable,fill=r)) + geom_tile() + #ggplot need each value be a rows in the new datasets
     scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation")+
@@ -154,27 +154,29 @@ heatmap_plot_multi_variable <- function(file,varcol,n_sig,Type=TRUE,minsample=10
 #' @importFrom RColorBrewer brewer.pal
 #' @importFrom grid grid.draw
 #' @import ggplot2
-#' @importFrom rlang .data
 #' @importFrom grDevices colorRampPalette dev.off pdf
-Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,height = 30,facet) {
-   
+Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,height = 30,facet="signature") {
+    
+    file[,var_index] <- apply(file[,var_index],2,as.numeric)
+    file[,1:n_sig] <- apply(file[,1:n_sig],1,function(x) x/sum(x))
+    
     p_type <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,minsample=minsample)   
     
     p_all <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,Type=F)    
     
     p_ave <- p_type %>%
-      group_by(.data$variable,.data$varlable) %>%
-      dplyr::summarize(value=mean(.data$r))
+      group_by(variable,varlable) %>%
+      dplyr::summarize(value=mean(r))
 
     coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
     par(bg = 'white')
     
-    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=.data$variable,y=.data$varlable,fill=.data$r))+geom_tile()+facet_grid(cols = vars(.data$cancertype))+
-                                    geom_text(aes(x=.data$variable,y=.data$varlable,label=round(.data$r,2)),size=3,col="#ffffff")
-    if (facet=="signature") p1 <- ggplot(p_type,aes(x=.data$cancertype,y=.data$varlable,fill=.data$r))+geom_tile()+facet_grid(rows = vars(.data$variable))+
-                                    geom_text(aes(x=.data$cancertype,y=.data$varlable,label=round(.data$r,2)),size=3,col="#ffffff")
-    if (facet=="measure") p1 <- ggplot(p_type,aes(x=.data$cancertype,y=.data$variable,fill=.data$r))+geom_tile()+facet_grid(rows = vars(.data$varlable))+
-                                    geom_text(aes(x=.data$cancertype,y=.data$variable,label=round(.data$r,2)),size=3,col="#ffffff")
+    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=variable,y=varlable,fill=r))+geom_tile()+facet_grid(cols = vars(cancertype))+
+                                    geom_text(aes(x=variable,y=varlable,label=round(r,2)),size=3,col="#ffffff")
+    if (facet=="signature") p1 <- ggplot(p_type,aes(x=cancertype,y=varlable,fill=r))+geom_tile()+facet_grid(rows = vars(variable))+
+                                    geom_text(aes(x=cancertype,y=varlable,label=round(r,2)),size=3,col="#ffffff")
+    if (facet=="measure") p1 <- ggplot(p_type,aes(x=variable,y=cancertype,fill=r))+geom_tile()+facet_grid(cols = vars(varlable))+
+                                    geom_text(aes(x=variable,y=cancertype,label=round(r,2)),size=3,col="#ffffff")
     
     p1 <- p1 + scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation")+
       #labs(subtitle = paste0(varlabel))+
@@ -208,9 +210,10 @@ Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,he
         dir.create(output)
       } 
       
-      pdf(file=output,width = width,height = height)
+      save(p_type,file=paste0(output,"cor_table.RData"))
+      
       grid.draw(g1)
-      dev.off()
+      ggsave(filename = paste0(output,"correlation.pdf"),width=width,height=height)
     }
 }  
 
