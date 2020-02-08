@@ -1,12 +1,21 @@
-hc_consensus <-
-function(combine_sig,cluster,output,ccfMatrix,distance="euclidean")  {
-  library("RColorBrewer")
-  library("pheatmap")
-  library("cowplot")
-  #library(factoextra)
-  
+
+#' Plotting for HC results 
+#' @name hc_consensus ccfMat ccf matrix for all samples
+#' @param combine_sig combined signatures for all cancer types
+#' @param cluster clustering number
+#' @param output output folder path
+#' @param ccfMatrix ccf matrix for all samples
+#' @param distance distance function
+#' @return exposure
+#' @import pheatmap
+#' @importFrom  rlang .data
+#' @importFrom cowplot save_plot
+hc_consensus <- function(combine_sig,cluster,output,ccfMatrix,distance="euclidean")  {
+
   upper = quantile(combine_sig,0.95)
+  
   breaksList = seq(0, upper, by = 0.01)
+  
   col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
     
   ## set `cutree_cols` based on suggested cluster number 
@@ -18,8 +27,8 @@ function(combine_sig,cluster,output,ccfMatrix,distance="euclidean")  {
     
   ## Compute consensu signatures for each cluster
   consensus_sig <- as.data.frame(t(combine_sig)) %>%
-      mutate(sig=rownames(.)) %>%
-      left_join(.,sig_label,by="sig") %>%
+      mutate(sig=rownames()) %>%
+      left_join(sig_label,by="sig") %>%
       group_by(cluster) %>%
       mutate(sig=NULL) %>%
       summarise_all(mean) 
@@ -32,7 +41,6 @@ function(combine_sig,cluster,output,ccfMatrix,distance="euclidean")  {
   
   if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
   if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
-  library(YAPSA)
  
   load(paste0(HC_folder,dir(HC_folder)[grep("samples",dir(HC_folder))]))
   

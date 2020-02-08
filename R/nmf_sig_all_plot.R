@@ -1,18 +1,14 @@
-library(gridExtra)
-library(ggplot2)
-library(RColorBrewer)
-library(grid)
-library(dplyr)
-library(reshape2)
-library(cowplot)
-library(magrittr)
-library(NMF)
 
 
 #' Plot signature matrix
+#' @name sig_plot
 #' @param sig signature matrix
 #' @return mydata mutation data frame
 #' @export
+#' @importFrom reshape2 melt
+#' @importFrom grid grid.draw
+#' @importFrom RColorBrewer brewer.pal
+#' @importFrom magrittr %>% set_colnames
 sig_plot <- function(sig){
  
   xx <- as.data.frame(t(apply(sig,2,function(x) x/sum(x)))) %>%
@@ -50,25 +46,32 @@ sig_plot <- function(sig){
 }
 
 #' Perform nmf for a cancer type
+#' @name nmf_sig_plot_type
 #' @param type cancer type
 #' @param MatType matrix type
 #' @param input_folder ccf file path
 #' @param output output file path
 #' @param rank rank
 #' @return save nmf results in output folder and plot signature for this type
+#' @importFrom NMF nmf
+#' @importFrom magrittr %>% set_colnames
 nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   
   type_path <- paste0(input_folder,type,"/")
   
-  if (MatType=="fraction") 
+  if (MatType=="fraction") {
     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfFractionMatrix_",dir(type_path))])
+  }
   
-  if (MatType=="count")
+  if (MatType=="count"){
     file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir(type_path))])
-  
+  }
+    
   samplename_path <- paste0(input_folder,type,"/",dir(type_path)[grep("samplelist",dir(type_path))]) 
   
-  if (!dir.exists(paste0(output,type))) dir.create(paste0(output,type))
+  if (!dir.exists(paste0(output,type))) {
+    dir.create(paste0(output,type)) 
+  }
   
   load(file=file_path)
   
@@ -99,7 +102,6 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   expo <- as.matrix(res@fit@H)
   
   #sig plot
-  
   p_sig <- sig_plot(sig)
   
   #output sig and expo
@@ -114,11 +116,13 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
 }
 
 #' Perform nmf for multiple cancer types
+#' @name nmf_sig_all_plot
 #' @param input_folder ccf file path
 #' @param output output file path
 #' @param rank_summary rank summary file
 #' @return save nmf results in output folder and plot signature for all cancer types
 #' @export
+#' @import cowplot
 nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
   
   if (!dir.exists(output)) dir.create(output)
@@ -157,10 +161,14 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
     
     # output signature plot for all cancer types
     n_file <-  j %% 8
-    if (n_file==0) n_pdf <- (j %/% 8) else
-      n_pdf <- (j %/% 8)+1
     
-    for (i in 1:n_pdf){
+    if (n_file==0) {
+      n_pdf <- (j %/% 8) 
+    } else {
+      n_pdf <- (j %/% 8)+1
+    }
+    
+    for (i in 1:n_pdf) {
       if (i != n_pdf) {
         commands1 <- paste0("pdf(file=paste0(output,'Sig_summary_p",(8*i-7),"-",8*i,"_',Sys.Date(),'.pdf'),height=25,width=12)")
         commands2 <- paste0("g",i,"<- plot_grid(",paste0("p",(8*i-7):(8*i),collapse=","),",align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") 

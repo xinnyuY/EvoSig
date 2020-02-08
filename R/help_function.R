@@ -1,4 +1,5 @@
 #' Load multiple format ccf file
+#' @name load_ccf
 #' @param samplename cancer type
 #' @param input 
 #' @return ssm
@@ -25,14 +26,20 @@ load_ccf <- function(samplename,input){
      if (exists("res")) return(res$ssm) else
        if (exists("ssm")) return(ssm)
 }
-
+#' create multiple dir
+#' @name multi.dir.create
+#' @param list list of directory
+#' @return create multiple directory
+#' @export
 multi.dir.create <- function(list){
   for (i in list) {if (!dir.exists(i)) dir.create(i,recursive = T)}
 }
 
 #' Unify format of data frame 
+#' @name file_format
 #' @param filename data frame
 #' @param samplenamecol column index of samplename
+#' @export
 file_format <- function(filename=filename,samplenamecol){
     names <- colnames(filename)
     names[samplenamecol] <- "samplename"
@@ -43,12 +50,15 @@ file_format <- function(filename=filename,samplenamecol){
   }
 
 #' Merge ssm and cna files
+#' @name ParseSnvCnaPcawgFormat
 #' @param ssm ssm
 #' @param cna cna
+#' @export
+#' @import dplyr
 ParseSnvCnaPcawgFormat <- function (ssm, cna) {
     
     ssm <- ssm %>%
-      mutate(chr= substr(chr,4,length(chr)),
+      mutate(chr = substr(chr,4,length(chr)),
              cn_frac = NA,
              major_cn = NA,
              minor_cn = NA,

@@ -1,8 +1,13 @@
+#' Plotting rank estimate
+#' @name rank_estimate_plot
+#' @param outputFolder folder stores rank estimate files
+#' @param rankfilepath rank file path to output
+#' @return save nmf results in output folder and plot signature for all cancer types
+#' @export
+#' @importFrom cowplot plot_grid
+#' @importFrom gridExtra arrangeGrob grid.arrange
 rank_estimate_plot <- function(outputFolder,rankfilepath) {
-  library(ggplot2)
-  library(ggpubr)
-  library(gridExtra)
-  library(dplyr)
+  
   file <- unique(unlist(lapply(dir(outputFolder),function(x) strsplit(x,"_")[[1]][[1]])))
   rank_blank <- data.frame(cancertype=file,rank=NA,rss_suggested_rank=NA)
   

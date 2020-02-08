@@ -1,21 +1,17 @@
 ## Function 1 - Heatmap for all the variables
 
-library(RColorBrewer)
-library(ggplot2)
-library(psych)
-library(plyr)
-library(reshape2)
 
 #' Basic correlation function for measures with each cancer type
+#' @name corr_spearman_type
 #' @param xx exposure file merged with measures of interest
 #' @param n_sig number of evolutionary dynamics signatures
 #' @param varcol input dataframe containing all samples with corresponding types
 #' @param output specify ouput correlation value, p value or sample size
 #' @return depends on output choice
-corr_spearman_type <- function(xx,n_sig=n_sig,varcol=varcol,output="r"){
-  
+corr_spearman_type <- function(xx,n_sig,varcol,output){
+
   col <- function(data,n_sig,varcol){
-    return(corr.test(data[,1:n_sig],data[,varcol],method = "spearman",use = "complete",adjust="holm"))
+    return(psych::corr.test(data[,1:n_sig],data[,varcol],method = "spearman",use = "complete",adjust="holm"))
   }
   
   r_commands <- paste0("r <- data.frame(",paste0("cor=col(xx,",n_sig,",",varcol,")[['r']]",collapse=","),")")
@@ -30,6 +26,7 @@ corr_spearman_type <- function(xx,n_sig=n_sig,varcol=varcol,output="r"){
 }
 
 #' compute correlation for a single measure with evolutionary dynamics signatures
+#' @name cor_evoSig
 #' @param file exposure file merged with measures of interest
 #' @param varcol number of evolutionary dynamics signatures
 #' @param n_sig input dataframe containing all samples with corresponding types
@@ -38,66 +35,53 @@ corr_spearman_type <- function(xx,n_sig=n_sig,varcol=varcol,output="r"){
 cor_evoSig <- function(file,varcol,n_sig,output="r")   {
   
   data <- file[which(!is.na(file[,varcol])),]
-  
   if (nrow(data)<=2) {
-    
     data <- NULL
-    
   }  else {
-    
     data <- as.data.frame(t(corr_spearman_type(data,n_sig=n_sig,varcol=varcol,output=output)))
-    
     if (ncol(data)==n_sig) colnames(data) <- paste0("Signature ",1:n_sig)
-    
     if (ncol(data)==1) colnames(data) <- "n_sample"
   }
-  
   return(data)
-  
 }
 
 #' Correlation of a single measure with evolutionary signatures across cancer types 
+#' @name heatmap_plot_for_single_measure_across_types
 #' @param file Ccube folder
 #' @param varcol Output folder
-#' @param n_sig
+#' @param n_sig number of signatures
 #' @param keep_pl0.05 whether to keep correaltion with p>0.05
 #' @param minsample the minimun samples
 #' @param Type Specify whether to compute correlation for each cancer type
 #' @return a data frame containing the summary for all samples in the ccf files
-#' @export
-heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_pl0.05 = FALSE,minsample=minsample,Type=Type){     
+#' @importFrom plyr ddply
+#' @import dplyr
+heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_pl0.05 = FALSE,minsample=minsample,Type){     
  
-  if (Type==T) {
-    
+  if (Type) {
     xx_r <- ddply(file, .(cancertype), .fun =cor_evoSig, varcol=varcol,n_sig=n_sig) %>% melt(id="cancertype")
-    
     xx_p <- ddply(file, .(cancertype), .fun =cor_evoSig,varcol=varcol,n_sig=n_sig,output="p") %>% melt(id="cancertype")
-   
     cor_n_type <- ddply(file, .(cancertype), .fun =cor_evoSig,varcol=varcol,n_sig=n_sig,output="n")
-    
     xx_cor <- left_join(xx_r,xx_p,by=c("cancertype","variable")) %>% left_join(cor_n_type,by="cancertype")
-
   } else {
-  
     xx_r <- file %>% cor_evoSig(varcol=varcol,n_sig=n_sig) %>% mutate(cancertype="All") %>% melt(id="cancertype")
-  
     xx_p <- file %>% cor_evoSig(varcol=varcol,n_sig=n_sig,output="p") %>% mutate(cancertype="All") %>% melt(id="cancertype")
- 
     cor_n_type <- file %>% cor_evoSig(varcol=varcol,n_sig=n_sig,output="n") %>% mutate(cancertype="All")
-  
     xx_cor <- left_join(xx_r,xx_p,by=c("cancertype","variable")) %>% left_join(cor_n_type,by="cancertype")
-
   }
   
   colnames(xx_cor)[3:5] <- c("r","p","n_sample")
   
   # choose whether to keep value with p>0.05
-  if (keep_pl0.05 == FALSE & any(xx_cor$p>0.05)) xx_cor[which(xx_cor$p>0.05),]$r <- 0
+  if (keep_pl0.05 == FALSE & any(xx_cor$p>0.05)) 
+    xx_cor[which(xx_cor$p>0.05),]$r <- 0
   
   # set min tumour samples, delete types with NA and sample size low than the threshold
-  if (mean(is.na(xx_cor$r))>0) xx_cor <- xx_cor[-which(is.na(xx_cor$r)),] 
+  if (mean(is.na(xx_cor$r))>0) 
+    xx_cor <- xx_cor[-which(is.na(xx_cor$r)),] 
   
-  if (length(which(xx_cor$n_sample < minsample))>0) xx_cor <-xx_cor[-which(xx_cor$n_sample < minsample),] 
+  if (length(which(xx_cor$n_sample < minsample))>0) 
+    xx_cor <-xx_cor[-which(xx_cor$n_sample < minsample),] 
   
   cor_n_type <- unique(xx_cor[,c("cancertype","n_sample")]) 
  
@@ -107,10 +91,10 @@ heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_
   ###Set the background color to white / makes the background white
   par(bg = 'white')
   
-  coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+  coul = RColorBrewer::colorRampPalette(brewer.pal(8, "RdBu"))(256)
   
   p1 <- ggplot(data=xx_cor,mapping=aes(x=cancertype,y=variable,fill=r)) + geom_tile() + #ggplot need each value be a rows in the new datasets
-    scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+    scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation")+
     geom_text(aes(x=cancertype,y=variable,label=round(r,2)),size=3,col="#ffffff")+
     labs(subtitle = paste0(varlabel))+
     annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
@@ -127,26 +111,28 @@ heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_
 }
 
 
-#' Plot heatmap for correlation between measures and evolutionary signatures
-#' @param file 
-#' @param varcol 
-#' @param n_sig 
-#' @param Type
-#' @param minsample
-#' @return 
+#' Plot heatmap for correlation between measures and evolutionary signature
+#' @name heatmap_plot_multi_variable
+#' @param file exposure file with measures of interest
+#' @param varcol index of columns of measures
+#' @param n_sig number of signatures
+#' @param Type Specify compute correlation for each cancer type or for all
+#' @param minsample minimun samples required for computing correlation
+#' @return return heatmap for correlation between measures and evolutionary signature
 #' @export
 heatmap_plot_multi_variable <- function(file,varcol,n_sig,Type=TRUE,minsample=10){
   
   for (i in 1:length(varcol)){
     
     varlabel <- colnames(file)[varcol[i]]
-    #commands1 <- paste0("p_",i,"<- heatmap_plot_for_single_measure_across_types(file,varcol=",varcol[i],",n_sig=",n_sig,Type=",Type)[[1]]")
-    commands2 <- paste0("table_",i,"<- heatmap_plot_for_single_measure_across_types(file,varcol=",varcol[i],",n_sig=",n_sig,",Type=",Type,",minsample=",minsample,")[[2]]")
-    commands3 <- paste0("table_",i,"$varlable <- '",varlabel,"'")
-    #eval(parse(text=commands1))
+    commands1 <- paste0("table_",i,"<- heatmap_plot_for_single_measure_across_types(file,varcol=",varcol[i],",n_sig=",n_sig,",Type=",Type,",minsample=",minsample,")[[2]]")
+    commands2 <- paste0("table_",i,"$varlable <- '",varlabel,"'")
+    eval(parse(text=commands1))
     eval(parse(text=commands2))
-    eval(parse(text=commands3))
-    if (i==1) {total_table <- table_1} else {
+    
+    if (i==1) {
+      total_table <- table_1} 
+    else {
       commands <- paste0("total_table <- rbind(total_table,table_",i,")")
       eval(parse(text=commands))
     }
@@ -154,44 +140,43 @@ heatmap_plot_multi_variable <- function(file,varcol,n_sig,Type=TRUE,minsample=10
   return(total_table)
 }
 
-
-
-################################### 10.4 2019 Heatmap SNV_type_facet(evo) + 10.6 Integrated heatmap
-
-#minsample - 30
-#var_index - measure column index
-
-# var_index = 40:99
-# file = EvoExposure_merge_snv_immune
-# n_sig = 5
-# minsample = 10
-# output = "immune_correlation_new1.pdf"
-# width = 12
-# height =30
-
+#' Correlation heatmap plotting
+#' @name Cor_heatmap
+#' @param file input exposure file with measures
+#' @param output output folder path
+#' @param n_sig number of signatures
+#' @param width width of output plot
+#' @param height height of output plot
+#' @param facet specify facet 
+#' @param minsample minimun samples required for computing correlation
+#' @return return heatmap for correlation between measures and evolutionary signature
+#' @export
+#' @importFrom RColorBrewer brewer.pal
+#' @importFrom grid grid.draw
+#' @import ggplot2
+#' @importFrom rlang .data
+#' @importFrom grDevices colorRampPalette dev.off pdf
 Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,height = 30,facet) {
-    library(grid)
-    rm(g1,p1,p_type,p_all,p_ave)
-  
+   
     p_type <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,minsample=minsample)   
     
     p_all <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,Type=F)    
     
     p_ave <- p_type %>%
-      group_by(variable,varlable) %>%
-      dplyr::summarize(value=mean(r))
+      group_by(.data$variable,.data$varlable) %>%
+      dplyr::summarize(value=mean(.data$r))
 
     coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
     par(bg = 'white')
     
-    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=variable,y=varlable,fill=r))+geom_tile()+facet_grid(cols = vars(cancertype))+
-                                    geom_text(aes(x=variable,y=varlable,label=round(r,2)),size=3,col="#ffffff")
-    if (facet=="signature") p1 <- ggplot(p_type,aes(x=cancertype,y=varlable,fill=r))+geom_tile()+facet_grid(rows = vars(variable))+
-                                    geom_text(aes(x=cancertype,y=varlable,label=round(r,2)),size=3,col="#ffffff")
-    if (facet=="measure") p1 <- ggplot(p_type,aes(x=cancertype,y=variable,fill=r))+geom_tile()+facet_grid(rows = vars(varlable))+
-                                    geom_text(aes(x=cancertype,y=variable,label=round(r,2)),size=3,col="#ffffff")
+    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=.data$variable,y=.data$varlable,fill=.data$r))+geom_tile()+facet_grid(cols = vars(.data$cancertype))+
+                                    geom_text(aes(x=.data$variable,y=.data$varlable,label=round(.data$r,2)),size=3,col="#ffffff")
+    if (facet=="signature") p1 <- ggplot(p_type,aes(x=.data$cancertype,y=.data$varlable,fill=.data$r))+geom_tile()+facet_grid(rows = vars(.data$variable))+
+                                    geom_text(aes(x=.data$cancertype,y=.data$varlable,label=round(.data$r,2)),size=3,col="#ffffff")
+    if (facet=="measure") p1 <- ggplot(p_type,aes(x=.data$cancertype,y=.data$variable,fill=.data$r))+geom_tile()+facet_grid(rows = vars(.data$varlable))+
+                                    geom_text(aes(x=.data$cancertype,y=.data$variable,label=round(.data$r,2)),size=3,col="#ffffff")
     
-    p1 <- p1 + scale_fill_gradient2(low=coul[1],mid="#ffffff",high=coul[256],midpoint = 0,name="Spearman Correlation")+
+    p1 <- p1 + scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation")+
       #labs(subtitle = paste0(varlabel))+
       #annotate('text',x=1:nrow(cor_n_type),y=rep(n_sig+0.7,each=nrow(cor_n_type)),label=cor_n_type[,2],size=3)+
       ylab("")+xlab("")+ theme(axis.text.x = element_text(angle = 45, hjust = 1,size=10),
@@ -217,9 +202,16 @@ Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,he
       k <- k+1
     }
     
-    pdf(file=output,width = width,height = height)
-    grid.draw(g1)
-    dev.off()
+    if(!is.na(output)) {
+      
+      if (!dir.exists(output)) {
+        dir.create(output)
+      } 
+      
+      pdf(file=output,width = width,height = height)
+      grid.draw(g1)
+      dev.off()
+    }
 }  
 
 

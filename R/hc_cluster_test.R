@@ -1,7 +1,14 @@
-hc_cluster_test <-
-function(data,methods,distance,min = 2,max = 10){
-  library(NbClust)
-  
+#' Perform Hierarchical clustering number estimate
+#' @name hc_cluster_test ccfMat ccf matrix for all samples
+#' @param data combined signatures for all cancer types
+#' @param methods clustering method
+#' @param distance distance funciton
+#' @param min minimum clustering number
+#' @param max maximum clustering number
+#' @return exposure
+#' @import NbClust
+hc_cluster_test <- function(data,methods,distance,min = 2,max = 10){
+
   getmode <- function(v) {
     uniqv <- unique(v)
     uniqv[which.max(tabulate(match(v, uniqv)))]

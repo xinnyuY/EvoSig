@@ -1,10 +1,30 @@
-Package: EvoDynamicsSignature
+Package: EvoSig
 Type: Package
-Title: What the package does (short line)
-Version: 1.0
-Date: 2020-02-05
+Title: Evolutionary dynamics signature extraction
+Version: 1.0.0
+Date: 2020-2-08
 Author: Xinyu Yang
-Maintainer: Who to complain to <yourfault@somewhere.net>
-Description: More about what it does (maybe more than one line)
-License: What license is it under?
+Maintainer: Xinyu Yang <yangxinyu621@gmail.com>
+Depends:
+    R (>= 2.0)
+Description: Evolutionary dynamics signature extraction
+Imports:
+    grid,
+    RColorBrewer,
+    dplyr,
+    ggplot2,
+    NMF,
+    plyr,
+    YAPSA,
+    magrittr,
+    reshape2,
+    cowplot,
+    gridExtra,
+    NbClust,
+    pheatmap,
+    ggpubr,
+    rlang
+License: GPL-2
+LazyLoad: yes
 RoxygenNote: 7.0.2
+Encoding: UTF-8
