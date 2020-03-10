@@ -8,7 +8,15 @@
 #' @export
 #' @import dplyr
 #' @import ggplot2
-Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30){
+#' @import doParallel
+
+
+Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multicore=FALSE,TCGA=F,ICGC=F){
+  
+  if (multicore) {
+    if (!exists("cl")) cl <- makeCluster(detectCores() - 1, type="SOCK") 
+    registerDoParallel(cl)  
+  }
   
   post_summary_analyse <- function(samplename){
   
@@ -16,11 +24,13 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30){
     ccf <- unique(ssm$ccube_ccf_mean)
     ccf_mean_order <- sort(ccf,decreasing = T)
     Ncluster <- length(ccf)
+    ave_deapth <- mean(ssm$total_counts)
     
     post_summary <- data.frame(samplename <- samplename) %>%
       mutate(
         Tumor_Sample_Barcode = unique(ssm$Tumor_Sample_Barcode),
         n_mutations = nrow(ssm),
+        ave_deapth <- mean(ssm$total_counts),
         ccf_01_percentage = mean(ssm$ccube_ccf<=1),
         ccf_02_percentage = mean(ssm$ccube_ccf<=2),
         Ncluster = Ncluster,
@@ -34,46 +44,50 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30){
       ) %>% set_colnames(colnames)
     
     return(post_summary)
-    
   }
+  
   sample_list <- dir(input)
   
-  colnames <- c("samplename","Tumor_Sample_Barcode","n_mutations","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","purity","ccube_purity","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5")
+  colnames <- c("samplename","Tumor_Sample_Barcode","n_mutations","ave_depth","ccf_0-1_percentage","ccf_0-2_percentage","Ncluster","purity","ccube_purity","ccf_mean_cluster1","ccf_mean_cluster2","ccf_mean_cluster3","ccf_mean_cluster4","ccf_mean_cluster5")
   
-  post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
+  n_sample <- nrow(sample_list)
   
-  if (!is.na(typefile)) {
+  if (multicore) post_summary <- do.call(rbind,foreach(1:n_sample) %dopar% post_summary_analyse(sample_list[i]))else
+    post_summary <- do.call(rbind,lapply(sample_list,post_summary_analyse))
+  
+  # add type variable
+  if ( (!is.na(typefile) & !TCGA) | (!is.na(typefile) & !ICGC) ) 
     cancertype <- read.csv(file=typefile)[,-1] 
-    colnames(cancertype)[1] <- "samplename"
-    post_summary <- left_join(post_summary, cancertype,by="samplename") 
-    if ("Types" %in% colnames(post_summary)) 
-      colnames(post_summary)[which(colnames(post_summary)=="Types")] <- "cancertype"
+  
+  if (!is.na(typefile) & !TCGA) {
+    data("TCGAtypefile") 
+    cancertype <- TCGAtypefile
   }
   
+  if (colnames(cancertype)[1]=="Tumor_sample_barcode") 
+    colnames(cancertype)[1] <- "samplename"
+  
+  post_summary <- left_join(post_summary, cancertype,by="samplename") 
+  
+  if ("Types" %in% colnames(post_summary)) 
+      colnames(post_summary)[which(colnames(post_summary)=="Types")] <- "cancertype"
+
+
+
+  # Output
   if (!is.na(output)) {
     
-    multi.dir.create(output)
+    if (!dir.exists(output)) dir.create(output,recursive = T)
     
     write.csv(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".csv"))
     save(post_summary,file=paste0(output,"post_summary_",length(sample_list),"_",Sys.Date(),".RData"))
+
   }
   
-  xx <- post_summary %>% group_by(cancertype) %>% summarize(n=n())
-  
-  ggplot(data=xx,aes(x=cancertype,y=n)) +
-    geom_bar(position = 'dodge', stat='identity') +
-    geom_text(aes(label=n), position=position_dodge(width=0.9), vjust=-0.25)
-  
-  ggsave(paste0(output,"type_summary.pdf"),width = 50, height = 15, units = "cm")
-  
-  ## filter types with minimum samples
-  types <- xx %>% filter(n>minsample) %>% select(cancertype) 
-  
-  post_summary <- subset(post_summary,cancertype %in% types$cancertype)
-  
-  save(post_summary,file=paste0(output,nrow(post_summary),"_filtered_post_summary(n>",minsample,").RData"))
+  if (multicore) stopCluster(cl)
   
   post_summary
+  
 }
 
 

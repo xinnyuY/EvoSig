@@ -4,7 +4,13 @@
 \alias{Build_post_summary}
 \title{Build count matrix for input samples}
 \usage{
-Build_post_summary(input, output = NA, typefile = "NA", minsample = 30)
+Build_post_summary(
+  input,
+  output = NA,
+  typefile = "NA",
+  minsample = 30,
+  multicore = TRUE
+)
 }
 \arguments{
 \item{input}{ccf file foder path}

@@ -4,7 +4,7 @@
 \name{SNV_exposure}
 \alias{SNV_exposure}
 \title{SNV_exposure dataset}
-\format{An object of class \code{data.frame} with 30 rows and 10179 columns.}
+\format{An object of class \code{data.frame} with 10179 rows and 31 columns.}
 \usage{
 SNV_exposure
 }

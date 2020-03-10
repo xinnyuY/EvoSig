@@ -14,9 +14,9 @@ heatmap_plot_for_single_measure_across_types(
 )
 }
 \arguments{
-\item{file}{Ccube folder}
+\item{file}{input file}
 
-\item{varcol}{Output folder}
+\item{varcol}{columns index of variable of interest}
 
 \item{n_sig}{number of signatures}
 

@@ -6,7 +6,6 @@
 \usage{
 Cor_heatmap(
   file,
-  var_index,
   output = "NA",
   n_sig,
   minsample,

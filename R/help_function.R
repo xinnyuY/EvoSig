@@ -2,6 +2,7 @@
 #' @name load_ccf
 #' @param samplename cancer type
 #' @param input 
+#' @export
 #' @return ssm
 load_ccf <- function(samplename,input){
   Check <- ArgumentCheck::newArgCheck()
@@ -12,11 +13,10 @@ load_ccf <- function(samplename,input){
   format3 <- paste0(input,samplename,"/ccube_res_run1.RData")
   format4 <- paste0(input,samplename,"/ccubeRes.RData")
   
-  if (file.exists(format4 )) load(format4)  
-    else if (file.exists(format1 )) load(format1)  
-     else if(file.exists(format2)) load(format2) 
-      else if(file.exists(format3)) load(format3) 
-        else{
+  if (file.exists(format4 )) load(format4) else
+    if (file.exists(format1 )) load(format1) else
+     if(file.exists(format2)) load(format2) else  
+      if(file.exists(format3)) load(format3) else{
           ArgumentCheck::addError(
           msg = "No file has been loaded",
           argcheck = Check)
@@ -30,6 +30,7 @@ load_ccf <- function(samplename,input){
 #' @name multi.dir.create
 #' @param list list of directory
 #' @return create multiple directory
+#' @export
 multi_dir_create <- function(dirlist){
   for (i in dirlist) {if (!dir.exists(i)) dir.create(i,recursive = T)}
 }

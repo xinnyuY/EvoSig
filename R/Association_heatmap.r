@@ -50,8 +50,8 @@ cor_evoSig <- function(file,varcol,n_sig,output="r")   {
 
 #' Correlation of a single measure with evolutionary signatures across cancer types 
 #' @name heatmap_plot_for_single_measure_across_types
-#' @param file Ccube folder
-#' @param varcol Output folder
+#' @param file input file
+#' @param varcol columns index of variable of interest 
 #' @param n_sig number of signatures
 #' @param keep_pl0.05 whether to keep correaltion with p>0.05
 #' @param minsample the minimun samples
@@ -169,28 +169,37 @@ heatmap_plot_multi_variable <- function(file,varcol,n_sig,Type=TRUE,minsample=10
 #' @import ggplot2
 #' @importFrom grDevices colorRampPalette dev.off pdf
 #' @import dplyr
-Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,height = 30,facet="signature") {
+Cor_heatmap <- function(file,output="NA",n_sig,minsample,width = 12,height = 30,facet="signature") {
     
     file[,var_index] <- apply(file[,var_index],2,as.numeric)
     file[,(ncol(file)-1):ncol(file)] <- apply(file[,(ncol(file)-1):ncol(file)],2,as.character)
     
-    p_type <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,minsample=minsample,output=output)   
+    colnames(immune_measures_mapping)[1] <- "varlable"
     
-    p_all <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,Type=F)    
+    p_type <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,minsample=minsample,output=output) %>%
+      left_join(immune_measures_mapping,by="varlable")
     
-    p_ave <- p_type %>%
-      group_by(variable,varlable) %>%
-      dplyr::summarize(value=mean(r))
+    #p_all <- heatmap_plot_multi_variable(file,varcol=var_index,n_sig=n_sig,Type=F)    
+    
+    # p_ave <- p_type %>%
+    #   group_by(variable,varlable) %>%
+    #   dplyr::summarize(value=mean(r))
 
     coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
     par(bg = 'white')
-    
-    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=variable,y=varlable,fill=r))+geom_tile()+facet_grid(cols = vars(cancertype))+
+    my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+      
+    if (facet=="cancertype") p1 <- ggplot(p_type,aes(x=variable,y=factor(varlable,level = c(colnames(file)[var_index])),fill=r))+geom_tile()+facet_grid(cols = vars(cancertype))+
                                     geom_text(aes(x=variable,y=varlable,label=round(r,2)),size=3,col="#ffffff")
-    if (facet=="signature") p1 <- ggplot(p_type,aes(x=cancertype,y=varlable,fill=r))+geom_tile()+facet_grid(rows = vars(variable))+
+    
+      
+    if (facet=="signature") {
+      cluster <- immune_measures_mapping[which(immune_measures_mapping$Varibale %in% colnames(file)[var_index]),]$Cluster
+      p1 <- ggplot(p_type,aes(x=cancertype,y=factor(varlable,level = c(colnames(file)[var_index])),fill=r))+geom_tile()+facet_grid(rows = vars(variable))+
                                     geom_text(aes(x=cancertype,y=varlable,label=round(r,2)),size=3,col="#ffffff")
-    if (facet=="measure") p1 <- ggplot(p_type,aes(x=variable,y=cancertype,fill=r))+geom_tile()+facet_grid(cols = vars(varlable))+
-                                    geom_text(aes(x=variable,y=cancertype,label=round(r,2)),size=3,col="#ffffff")
+    }
+      
+   
     
     p1 <- p1 + scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation")+
       #labs(subtitle = paste0(varlabel))+
@@ -204,18 +213,22 @@ Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,he
             panel.grid.minor.y = element_blank(),
             strip.text.y = element_text(color="white",size=12))
     #coord_cartesian(ylim=c(1,n_sig+0.4))
-     
-    g1 <- ggplotGrob(p1)
-    my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+    
+    if (facet=="signature") {
+    
+      my_color <- brewer.pal(8, "Set3")[c(1,3:8,2)]
+    
+      g1 <- ggplotGrob(p1)
+ 
     ### change the color of facet strips
-    
-    strip_both <- which(grepl('strip-', g1$layout$name))
-    k <- 1
-    
-    for (i in strip_both) {
-      j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
-      g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
-      k <- k+1
+      strip_both <- which(grepl('strip-', g1$layout$name))
+      k <- 1
+      
+      for (i in strip_both) {
+        j1 <- which(grepl('rect', g1$grobs[[i]]$grobs[[1]]$childrenOrder))
+        g1$grobs[[i]]$grobs[[1]]$children[[j1]]$gp$fill <- my_color[k]
+        k <- k+1
+      }
     }
     
     if(!is.na(output)) {
@@ -223,13 +236,15 @@ Cor_heatmap <- function(file,var_index,output="NA",n_sig,minsample,width = 12,he
       multi_dir_create(output)
       
       save(p_type,file=paste0(output,"cor_table.RData"))
+      pdf(file=paste0(output,"Integrated_correlation_facet(",facet,").pdf"),width=width,height=height)
       grid.draw(g1)
-      ggsave(filename = paste0(output,"Integrated_correlation_facet(",facet,").pdf"),width=width,height=height)
+      dev.off()
     }
 }  
 
 
 
  
+
 
        
