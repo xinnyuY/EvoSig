@@ -2,6 +2,7 @@
 
 export(Build_post_summary)
 export(Cor_heatmap)
+export(EvoSig_input)
 export(Extract_sig)
 export(ParseSnvCnaPcawgFormat)
 export(ccfMatBuild)

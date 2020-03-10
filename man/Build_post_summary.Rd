@@ -7,9 +7,11 @@
 Build_post_summary(
   input,
   output = NA,
-  typefile = "NA",
+  typefile = NA,
   minsample = 30,
-  multicore = TRUE
+  multicore = FALSE,
+  TCGA = F,
+  ICGC = F
 )
 }
 \arguments{

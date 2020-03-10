@@ -11,7 +11,8 @@ ccfMatBuild_output(
   output,
   ccfupper = 1,
   RankEstimateType = "fraction",
-  add_samplename = TRUE
+  add_samplename = TRUE,
+  minsample = 30
 )
 }
 \arguments{

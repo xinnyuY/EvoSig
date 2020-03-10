@@ -11,8 +11,9 @@
 #' @import doParallel
 
 
-Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multicore=FALSE,TCGA=F,ICGC=F){
+Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multicore=FALSE,TCGA=F,ICGC=F){
   
+  cat("Start building post summary for",length(dir(input)),"input CCF files \n")
   if (multicore) {
     if (!exists("cl")) cl <- makeCluster(detectCores() - 1, type="SOCK") 
     registerDoParallel(cl)  
@@ -43,6 +44,7 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multi
         ccf_mean_cluster5 = ifelse(Ncluster>=5,ccf_mean_order[5],0)
       ) %>% set_colnames(colnames)
     
+     cat(">")
     return(post_summary)
   }
   
@@ -59,7 +61,7 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multi
   if ( (!is.na(typefile) & !TCGA) | (!is.na(typefile) & !ICGC) ) 
     cancertype <- read.csv(file=typefile)[,-1] 
   
-  if (!is.na(typefile) & !TCGA) {
+  if (TCGA) {
     data("TCGAtypefile") 
     cancertype <- TCGAtypefile
   }
@@ -67,11 +69,10 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multi
   if (colnames(cancertype)[1]=="Tumor_sample_barcode") 
     colnames(cancertype)[1] <- "samplename"
   
-  post_summary <- left_join(post_summary, cancertype,by="samplename") 
+  post_summary <- suppressWarnings(left_join(post_summary, cancertype,by="samplename"))
   
   if ("Types" %in% colnames(post_summary)) 
       colnames(post_summary)[which(colnames(post_summary)=="Types")] <- "cancertype"
-
 
 
   # Output
@@ -86,6 +87,7 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multi
   
   if (multicore) stopCluster(cl)
   
+  cat("\n Done \n")
   post_summary
   
 }
@@ -104,6 +106,7 @@ Build_post_summary <- function(input,output=NA, typefile="NA",minsample=30,multi
 #' @import dplyr
 ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename){
     
+  
     n_sample <- length(samplelist)
     rows <- upper/0.01 + 1
     ccfBand <- seq(0,upper,length.out = rows)
@@ -157,29 +160,29 @@ ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename
 #' @return CCF matrix for each cancer type
 #' @export
 #' @import dplyr
-ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankEstimateType="fraction",add_samplename=TRUE){
+ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankEstimateType="fraction",add_samplename=TRUE,minsample=30){
   
       samplelist_all <- post_summary$samplename
       type <- post_summary %>% group_by(.data$cancertype)%>% summarize(n=n())
       typelist <- as.character(subset(type,n>=30)$cancertype)
       ntype <- length(typelist)
   
-      print(paste0("Construct ccf count matrix for ",ntype," types (> 30 samples)"))
-      
+      cat(paste0("\n Start constructing ccf count matrix for ",ntype," types (>",minsample," samples) \n"))
+
       if (!is.na(output)) {
-        ccfOutput_path <- paste0(output,"EvoSig_result/ccfMat/")
-        ccfOutput_all_path <- paste0(output,"EvoSig_result/ccfMat/All/")
-        ccfOutput_rank_path <- paste0(output,"EvoSig_result/ccfMat/rank_estimate/")
+        ccfOutput_path <- paste0(output,"ccfMat/")
+        ccfOutput_all_path <- paste0(output,"ccfMat/All/")
+        ccfOutput_rank_path <- paste0(output,"ccfMat/rank_estimate/")
         
         multi_dir_create(c(ccfOutput_all_path,ccfOutput_rank_path))
         
         for (i in 1:ntype){
           
           type <-  typelist[i]
-          print(paste0("finish load ",i,'th type - ',type))
+          cat(paste0("\n >>>> loading ",i,'th type - ',type," <<<< \n"))
           
           samplelist_type <- subset(post_summary,cancertype==type)$samplename
-          n_sample <- length(samplelist)
+          n_sample <- length(samplelist_type)
           
           ccfBandCountsMat <- suppressWarnings(ccfMatBuild(samplelist_type,input_folder = input_folder,upper=ccfupper,add_samplename = add_samplename))
           
@@ -219,11 +222,11 @@ ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankE
         ccfCountMatrix_all <- ccfBandCountsMat_all[[1]]
         ccfFractionMatrix_all <- ccfBandCountsMat_all[[3]]
           
-        output_all_format <- paste0(ccfOutput_all_path,"All_",n_sample,"_0-",ccfupper)
+        output_all_format <- paste0(ccfOutput_all_path,"All_",length(samplelist_all),"_0-",ccfupper)
           
         # Output Matrix 
         save(ccfCountMatrix_all,file=paste0(output_all_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
         save( ccfFractionMatrix_all,file=paste0(output_all_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
     
-        print(paste0("Building CCF matrix finished, already saved results to ",output))
+        cat(paste0("\n Done, saved results to ",output))
 }
