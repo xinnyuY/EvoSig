@@ -16,7 +16,7 @@ Extract_sig <- function(ccfMat,consensus_sig,output=NA){
     
     EvoDynamics_exposure <- as.data.frame(t(LCD(Mat,consensus_sig))) %>%
       set_colnames(paste0("Evo_sig_",1:n_sig)) %>%
-      mutate(sample=ccfMat[,101]) %>%
+      mutate(samplename=ccfMat[,101]) %>%
       file_format(n_sig+1)
     
     if (!is.na(output)) {
@@ -30,12 +30,3 @@ Extract_sig <- function(ccfMat,consensus_sig,output=NA){
     EvoDynamics_exposure
 }
 
-# Exposure_Merge <- function(EvoExposure,measureslist) {
-#   n_evo_sig <- ncol(EvoExposure) -1
-#   for (i in measurelist) {
-#     n_sig <- nrow(measurelist[i])
-#   }
-#   
-#   
-# }
-  

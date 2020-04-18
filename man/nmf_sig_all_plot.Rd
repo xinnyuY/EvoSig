@@ -4,7 +4,13 @@
 \alias{nmf_sig_all_plot}
 \title{Perform nmf for multiple cancer types}
 \usage{
-nmf_sig_all_plot(input_folder, output, rank_summary)
+nmf_sig_all_plot(
+  input_folder,
+  output,
+  rank_summary,
+  MatType = "fraction",
+  unit = NA
+)
 }
 \arguments{
 \item{input_folder}{ccf file path}

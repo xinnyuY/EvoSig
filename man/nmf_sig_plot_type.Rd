@@ -4,7 +4,7 @@
 \alias{nmf_sig_plot_type}
 \title{Perform nmf for a cancer type}
 \usage{
-nmf_sig_plot_type(type, MatType = "fraction", input_folder, output, rank)
+nmf_sig_plot_type(type, MatType = "fraction", input_folder, output, rank, unit)
 }
 \arguments{
 \item{type}{cancer type}

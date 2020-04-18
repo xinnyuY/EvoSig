@@ -4,7 +4,9 @@
 \name{TCGAtypefile}
 \alias{TCGAtypefile}
 \title{TCGAtypefile dataset}
-\format{An object of class \code{data.frame} with 10186 rows and 3 columns.}
+\format{
+An object of class \code{data.frame} with 10186 rows and 3 columns.
+}
 \usage{
 TCGAtypefile
 }

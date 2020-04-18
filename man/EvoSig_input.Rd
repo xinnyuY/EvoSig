@@ -13,7 +13,10 @@ EvoSig_input(
   TCGA = F,
   ICGC = F,
   ccfupper = 1,
-  minsample = 30
+  minsample = 30,
+  minmutation = 30,
+  mindepth = 100,
+  typefile = NA
 )
 }
 \arguments{

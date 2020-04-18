@@ -61,6 +61,7 @@ cor_evoSig <- function(file,varcol,n_sig,output="r")   {
 #' @importFrom plyr ddply "."
 #' @import dplyr
 #' @importFrom reshape2 melt
+#' @importFrom grDevices colorRampPalette
 heatmap_plot_for_single_measure_across_types <- function(file,varcol,n_sig,keep_pl0.05 = FALSE,minsample=minsample,Type){     
  
   if (Type) {

@@ -1,0 +1,249 @@
+---
+title: "Signature_extract"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+
+# Main
+```{r}
+## pre-step: set directory and Initialization
+  library(readxl)
+  rm(ls())
+
+  setwd("D:/Project/Xinyu/test_TCGA")
+ 
+  data()
+
+####################################################################################  
+## Step1 (option) : run Ccube @ccube_test_v2.R | results already saved in test folder 
+  
+#################################################################################### 
+## Step2: produce input for rank estimate (build post_summary and ccf count matrix)
+  # from scratch
+library(EvoSig)
+
+Ccube_folder = "D:/Project/Data/TCGA/Ccube/TCGA_0106/"
+#typefile= "D:/Project/Data/TCGA/Ccube/TCGA_cancertype.csv"
+output = "D:/Project/Xinyu/EvoSig.test/3.10_x100/"
+
+EvoSig_input(Ccube_folder=Ccube_folder,output=output,ccfMatBuild=T,postSummaryBuild=T,TCGA=T,ccfupper=1,minsample=30) 
+  
+###############################################################################  
+#============================= go to python ==================================#
+## Step 3: Rank estimate ==> output rank_summary ("4.rank_summary.xlsx") 
+  
+  # modify python script manually
+  # -test.py: set path = `rank_estimate_folder`, set output = `rank_result_folder`
+  # -estimate_plot.py : set output = `rank_result_folder`, set export_csv = output
+  
+  # run python script: 1.test.py 2.estimate_plot.py | results already saved in `rank_result_folder`
+  
+  # Generate rank estimate plots (go back to R) and "4.rank_summary_test.csv" with suggested rss rank
+  
+  rank_file_blank <- paste0(output,"rank_summary_test_blank.csv")
+  rank_result_folder <- paste0(output,"rank_result/")
+  
+  rank_estimate_plot(outputFolder = rank_result_folder,rankfilepath = rank_file_blank)
+  
+  # * fill manually $rank in "4.rank_summary_test_blank.csv" and change name to "4.rank_summary_test.csv"
+######################################################  
+## Step 5: NMF for each type based on specified ranks
+  
+  # Notice: must fill the rank_summary sheet first to specify ranks
+  ## make sure first column(cancertype) and 2nd column(rank)
+  rank_summary <- read.csv(file= rank_file_blank)[,-1]
+  nmf_folder <- paste0(output,"NMF_result/")
+  Matrix_folder <- paste0(output,"ccfMat/")
+  
+  # run NMF for each cancer type 
+  nmf_sig_all_plot(input_folder=Matrix_folder,output=nmf_folder,rank_summary=rank_summary,MatType="count",unit=30)
+  
+  # Manually adjust rank from plot  
+  nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank,unit)
+########################################################  
+## Step 6: HC + LCD
+## Combine signatures extracted from differernt cancer types, run Hierarchical cluster and plot (save hc_heatmap, consensus sig and plot to output folder)
+  
+  ## combine signatures
+  combine_sig <- combine_sig_nmf(input_folder= nmf_folder,cancertype=rank_summary$cancertype) %>%
+    apply(2,function(x) x/sum(x)) 
+  
+  ## test the number of cluster
+  lista.methods = c("kl","ch","hartigan",
+                      "cindex","db","silhouette","ratkowsky","ball",
+                       "ptbiserial","gap", "frey", "mcclain",  "gamma", "gplus", "tau", "dunn", 
+                       "sdindex", "sdbw") # "hubert","dindex"
+  lista.distance = c("metodo","euclidean", "maximum", "manhattan", "canberra")
+    
+  hc_cluster_test(data=combine_sig,methods=lista.methods,distance=lista.distance,max=10,min=2) 
+  
+  #=================== specify cluster numbers ==============================#
+  ## run hierarchical cluster based on specified cluster and use LCD to get the exposure (save in folder `6.HC_consensus`)
+  ## check all the results in folder `6.HC_consensus`
+  ## Construct ccf matrix for all samples
+  ccfMat <- CountMatBuild(samplelist=post_summary$samplename,upper=1,input_folder=Ccube_folder)
+  save(ccfMat,file=paste0(Matrix_folder,"CCFMatrix_overall.RData"))
+  #load(file=paste0(Matrix_folder,"CCFMatrix_overall.RData"))
+  
+  consensus_sig_eu <- hc_consensus(combine_sig,cluster=6,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="euclidean")
+  consensus_sig_correlation <- hc_consensus(combine_sig,cluster=6,ccfMatrix=ccfMat[[3]],output=HC_folder,distance="correlation")
+
+  ###NMF
+  load(file=paste0(HC_folder,"correlation_5_consensus_sig.RData"))
+  
+  samplelist <- read.csv(paste0(HC_folder,"correlation_5_sample_list_random.csv"))[,-1]
+  Extract_sig(ccfMat=ccfMat[[3]],consensus_sig=consensus_sig,samplelist=samplelist)
+  
+  ## extract 6 signature
+  library(EvoSig)
+  library(dplyr)
+  library(magrittr)
+ 
+  data("SNV_exposure")
+  data("TCGAtypefile")
+  data("immune_landscape_measure")
+  
+  
+  lcd_sig_new <- cbind(cluster=c(1,2,3,4,5,6),t(lcd_sig))
+  
+  EvoDynamics_exposure <- Extract_sig(ccfMat=ccfMat[[3]],consensus_sig=lcd_sig_new,samplelist=samplelist)
+  
+  n_evo_sig <- ncol(EvoDynamics_exposure) -1
+  n_snv_sig <- nrow(SNV_exposure)
+    
+  SNV_exposure <- as.data.frame(t(SNV_exposure)) %>%
+      set_colnames(paste0("snv_sig_",1:n_snv_sig)) %>%
+      mutate(sample=rownames(.)) %>%
+      file_format(n_snv_sig+1) 
+    
+  sample_type_map <- post_summary[,c("samplename","cancertype")]
+    
+  immune <- immune_landscape_measure %>% file_format(1)
+  Type <- TCGAtypefile %>%  file_format(1) 
+  colnames(Type)[2] <-"cancertype"
+    
+  ### Merge all datasets
+    # EvoExposure_merge_snv_immune_new <- Reduce(function(...) merge(...,by="samplename",all.x=TRUE),list(EvoDynamics_exposure,SNV_exposure,immune,sample_type_map))
+    
+  EvoExposure_merge_snv_immune <- left_join(EvoDynamics_exposure,SNV_exposure,by="samplename") %>% 
+      left_join(.,immune,by="samplename") %>%
+      left_join(.,Type,by="samplename") 
+    
+  save(EvoExposure_merge_snv_immune,file=paste0(Exposure_folder,"EvoExposure_merge_snv_immune_6_sig.RData"))
+    
+    
+    ### No need for Normalization
+    #Absolutely not, correlation analysis describe the nature of the relationship between two variables what ever the range and the measurement units of them.
+  plot_output <- "6_signature/facet_cancertype/"
+  
+  setwd("D:/Project/Xinyu/test_TCGA")
+  
+  plot_output <- "6_signature/facet_signature/snv/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,8:37,output=plot_output,n_sig=6,minsample=10,width = 15,height = 30,facet="signature")
+  plot_output <- "6_signature/facet_signature/immune/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,41:100,output=plot_output,n_sig=6,minsample=10,width = 15,height = 48,facet="signature")
+  
+  plot_output <- "6_signature/facet_signature/snv/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,8:37,output=plot_output,n_sig=6,minsample=10,width = 48,height = 12,facet="cancertype")
+  plot_output <- "6_signature/facet_cancertype/immune/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,41:100,output=plot_output,n_sig=6,minsample=10,width = 48,height = 20,facet="cancertype")
+  
+  
+  plot_output <- "6_signature/facet_measure/snv/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,8:37,output=plot_output,n_sig=6,minsample=10,width = 48,height = 15,facet="measure")
+  plot_output <- "6_signature/facet_measure/immune/"
+  Cor_heatmap(EvoExposure_merge_snv_immune,41:100,output=plot_output,n_sig=6,minsample=10,width = 49 ,height = 8,facet="measure")
+  
+  
+
+```
+## Manually adjustment of singnatures cancer types
+
+## Manually adjustment of consensus sig
+
+```{r}
+## Step 8: run Hierarchical clustering and plot (save hc_heatmap, consensus sig and plot to output folder)
+  library("RColorBrewer")
+  library("pheatmap")
+  library("cowplot")
+
+  # parameter
+  distance="correlation"
+  output=test
+  ccfMatrix=ccfMat[[3]]
+  cluster=5
+
+  
+  #library(factoextra)
+  
+  upper = quantile(combine_sig,0.95)
+  breaksList = seq(0, upper, by = 0.01)
+  col <- colorRampPalette(rev(brewer.pal(n = 6, name = "RdYlBu")))(length(breaksList))
+    
+  ## set `cutree_cols` based on suggested cluster number 
+  out <- pheatmap(combine_sig, cutree_cols = cluster, fontsize_col = 5,fontsize_row = 0.4,color = col, breaks = breaksList,clustering_distance_cols=distance, cluster_rows=F,filename=paste0(output,"/",distance,"_",cluster,"_hc_heatmap.pdf"),clustering_method = "ward.D2")
+  
+  ## Manually adjustment
+  out$tree_col$
+  
+  grid.draw(out)
+  
+  sig_label <- as.data.frame(cutree(out$tree_col,k=cluster)) %>%
+      set_colnames("cluster") %>%
+      mutate(sig=rownames(.))
+  
+  write.csv(sig_label,file=paste0(output,"sig_label.csv"))
+  ## Manually adjustment
+  sig_label
+  sig_label[which(sig_label$sig=="PAAD_sig5"),]$cluster <- 
+  
+  
+  
+ 
+ 
+  ## Compute consensu signatures for each cluster
+  consensus_sig <- as.data.frame(t(combine_sig)) %>%
+      mutate(sig=rownames(.)) %>%
+      left_join(.,sig_label,by="sig") %>%
+      group_by(cluster) %>%
+      mutate(sig=NULL) %>%
+      summarise_all(mean) 
+  
+  save(consensus_sig,file=paste0(output,"/",distance,"_",cluster,"_consensus_sig.RData"))
+  consensus_sig <- apply(t(consensus_sig[,2:101]),2,as.numeric)
+  
+  p1 <- plot_grid(sig_plot(consensus_sig))
+  save_plot(paste0(output,"/",distance,"_",cluster,"_consensus_sig.pdf"),p1,base_asp = cluster)
+  
+  if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+  if (!requireNamespace("YAPSA",quietly = TRUE)) BiocManager::install("YAPSA")
+  library(YAPSA)
+ 
+  load(paste0(HC_folder,dir(HC_folder)[grep("samples",dir(HC_folder))]))
+  
+  ccfMatrix[is.na(ccfMatrix)] = 0
+  idx_random <- sample(1:ncol(ccfMatrix))
+  ccfMatrix <- ccfMatrix[,idx_random]
+  samplelist <- post_summary$samplename[idx_random]
+  
+  write.csv(samplelist,file=paste0(HC_folder,distance,"_",cluster,"_sample_list_random.csv"))
+  
+  exposure <- YAPSA::LCD(ccfMatrix,consensus_sig) 
+  table(rowSums(ccfMatrix)>0)
+  exposure <- as.data.frame(t(exposure)) %>%
+    set_colnames(paste0("sig_",1:ncol(.)))
+  save(exposure,file=paste0(output,"/",distance,"_",cluster,"_lcd_exposure.RData"))
+  
+  return(consensus_sig)
+
+```
+
+
+

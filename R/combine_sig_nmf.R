@@ -3,6 +3,7 @@
 #' @name combine_sig_nmf
 #' @param input_folder folder stores signatures for each type
 #' @param cancertype cancer type list
+#' @export
 #' @return matrix combining all signature matrix
 combine_sig_nmf <- function(input_folder,cancertype){
   

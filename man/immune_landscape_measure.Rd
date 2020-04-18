@@ -4,7 +4,9 @@
 \name{immune_landscape_measure}
 \alias{immune_landscape_measure}
 \title{Immune landscape measures dataset}
-\format{An object of class \code{tbl_df} (inherits from \code{tbl}, \code{data.frame}) with 11080 rows and 64 columns.}
+\format{
+An object of class \code{tbl_df} (inherits from \code{tbl}, \code{data.frame}) with 11080 rows and 64 columns.
+}
 \usage{
 immune_landscape_measure
 }

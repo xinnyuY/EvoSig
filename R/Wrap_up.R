@@ -11,18 +11,19 @@
 #' @return CCF matrix for each cancer type
 #' @export
 #' @import dplyr
-EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postSummaryBuild=F,TCGA=F,ICGC=F,ccfupper=1,minsample=30) {
+EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postSummaryBuild=F,TCGA=F,ICGC=F,ccfupper=1,minsample=30,minmutation=30,mindepth=100,typefile=NA) {
   
   # Step 1.1: build post_summary or load from file
   if (is.na(post_summary) | postSummaryBuild) {
     if (TCGA) post_summary <- Build_post_summary(Ccube_folder,output=output,minsample=30,multicore=FALSE,TCGA=T)
+    if (ICGC) post_summary <- Build_post_summary(Ccube_folder,output=output,minsample=30,multicore=FALSE,ICGC=T)
   } else {
-    load(post_summary)
+    post_summary <- Build_post_summary(Ccube_folder,output=output,minsample=30,multicore=FALSE,typefile=typefile)
   }
- 
+  
   # Step 1.2: filter post_summary
-  post_summary <- subset(post_summary,ave_depth >=100)
-  post_summary <- subset(post_summary,n_mutations >=30)
+  post_summary <- subset(post_summary,ave_depth >=mindepth)
+  post_summary <- subset(post_summary,n_mutations >=minmutation)
   
   types <- post_summary %>% group_by(cancertype) %>% summarize(n=n())  %>% filter(n>=minsample) 
   
@@ -37,6 +38,8 @@ EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postS
                        RankEstimateType="count",add_samplename=TRUE)  
   }
   
+  return(post_summary)
 
 }
+
 

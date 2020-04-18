@@ -7,6 +7,7 @@
 #' @param max maximum clustering number
 #' @return exposure
 #' @import NbClust
+#' @export
 hc_cluster_test <- function(data,methods,distance,min = 2,max = 10){
 
   getmode <- function(v) {

@@ -15,8 +15,8 @@ rank_estimate_plot <- function(outputFolder,rankfilepath) {
   for (i in 1:length(file)) {
     tryCatch({
         filename <- file[i]
-        estimate <- read.csv(paste0(outputFolder ,filename,"_ccfFractionMatrix.csv")) %>% mutate(type='normal')
-        estimate_random <- read.csv(paste0(outputFolder ,filename,"_ccfFractionMatrix.random.csv")) %>% mutate(type='random')
+        estimate <- read.csv(paste0(outputFolder ,filename,"_ccfCountMatrix.csv")) %>% mutate(type='normal')
+        estimate_random <- read.csv(paste0(outputFolder ,filename,"_ccfCountMatrix.random.csv")) %>% mutate(type='random')
         
         print(paste0("plot for ",filename)) 
         estimate_rank <- rbind(estimate,estimate_random)

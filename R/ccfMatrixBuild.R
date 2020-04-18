@@ -9,8 +9,6 @@
 #' @import dplyr
 #' @import ggplot2
 #' @import doParallel
-
-
 Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multicore=FALSE,TCGA=F,ICGC=F){
   
   cat("Start building post summary for",length(dir(input)),"input CCF files \n")
@@ -66,6 +64,11 @@ Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multico
     cancertype <- TCGAtypefile
   }
   
+  if (ICGC) {
+    data("ICGCtypefile") 
+    cancertype <- ICGCtypefile
+  }
+  
   if (colnames(cancertype)[1]=="Tumor_sample_barcode") 
     colnames(cancertype)[1] <- "samplename"
   
@@ -94,7 +97,7 @@ Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multico
 
 
 #' Build CCF Matrix for all samples within region 0-upper
-#' @name CountMatBuild
+#' @name ccfMatBuild
 #' @param samplelist samples' nam+e
 #' @param upper set CCF upper bound
 #' @param input_folder folder path stores ccf files 
@@ -104,9 +107,8 @@ Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multico
 #' @export
 #' @importFrom NMF randomize
 #' @import dplyr
-ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename){
+ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename=FALSE){
     
-  
     n_sample <- length(samplelist)
     rows <- upper/0.01 + 1
     ccfBand <- seq(0,upper,length.out = rows)
@@ -199,7 +201,7 @@ ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankE
           output_format_rank <- paste0(ccfOutput_rank_path,type,"_", n_sample,"_0-",ccfupper)
           
           save(ccfCountMatrix,file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
-          save(ccfCountsMatrix.random,file=paste0(output_format,"_ccfCountsMatrix.random_",Sys.Date(),".RData"))
+          save(ccfCountsMatrix.random,file=paste0(output_format,"_ccfCountMatrix.random_",Sys.Date(),".RData"))
           save(ccfFractionMatrix,file=paste0(output_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
           save(ccfFractionMatrix.random,file=paste0(output_format,"_ccfFractionMatrix.random_",Sys.Date(),".RData"))
           

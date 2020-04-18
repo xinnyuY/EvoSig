@@ -21,10 +21,8 @@ load_ccf <- function(samplename,input){
           msg = "No file has been loaded",
           argcheck = Check)
           }
-  
-  if (exists("ccubeRes")) return(ccubeRes$ssm)  else
-     if (exists("res")) return(res$ssm) else
-       if (exists("ssm")) return(ssm)
+  if (exists("ssm")) return(ssm) else
+    if (exists("ccubeRes")) return(ccubeRes$ssm) else
 }
 #' create multiple dir
 #' @name multi.dir.create

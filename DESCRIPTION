@@ -12,7 +12,7 @@ Imports: grid, RColorBrewer, dplyr, ggplot2, NMF, plyr, YAPSA,
         ggpubr,
 License: GPL-2
 LazyLoad: yes
-RoxygenNote: 7.0.2
+RoxygenNote: 7.1.0
 Encoding: UTF-8
 NeedsCompilation: no
 Packaged: 2020-02-09 04:26:34 UTC; yangx

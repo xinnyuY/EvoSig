@@ -55,7 +55,8 @@ sig_plot <- function(sig){
 #' @return save nmf results in output folder and plot signature for this type
 #' @importFrom NMF nmf
 #' @importFrom magrittr %>% set_colnames
-nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
+#' @export
+nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank,unit){
   
   type_path <- paste0(input_folder,type,"/")
   
@@ -64,40 +65,37 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   }
   
   if (MatType=="count"){
-    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountsMatrix_",dir(type_path))])
+    file_path <- paste0(input_folder,type,"/",dir(type_path)[grep("ccfCountMatrix_",dir(type_path))])
   }
-    
-  samplename_path <- paste0(input_folder,type,"/",dir(type_path)[grep("samplelist",dir(type_path))]) 
-  
+
   if (!dir.exists(paste0(output,type))) {
     dir.create(paste0(output,type)) 
   }
   
   load(file=file_path)
   
-  samplename <- as.character(read.csv(file=samplename_path)[,-1])
-  
-  n_sample <- length(samplename)
-  
   #format rank summary file
+  if (exists("ccfFractioMatrix"))ccfMat <- ccfFractionMatrix
+  if (exists("ccfCountMatrix")) ccfMat <- ccfCountMatrix
   
-  ccfMat <- ccfFractionMatrix
-  #if (exists("ccfCountsMatrix")) ccfMat <- ccfCountsMatrix
+  n_sample <- nrow(ccfMat)
   
-  index <- sample(1:ncol(ccfMat))
-  ccfMat <- ccfMat[,index]
-  samplename_random <- samplename[index]
+  ccf <- t(apply(ccfMat[,1:100],2,as.numeric))
+  #Devide by mega-bases unit
+  if (!is.na(unit)) ccf<- ccf/unit
   
   #preprocess for rows with all 0
-  index_p <- which(rowSums(ccfMat)>0)
-  index_n <- which(!rowSums(ccfMat)>0)
-  ccfMat <- ccfMat[which(rowSums(ccfMat)>0),]
+  
+  index_p <- which(rowSums(ccf)>0)
+  index_n <- which(!rowSums(ccf)>0)
+  ccf<- ccf[which(rowSums(ccf)>0),]
   
   #run NMF
-  res <- nmf(ccfMat,rank,.opt='vp4')
+  res <- nmf(ccf,rank,nrun=1000,.opt='vp4')
+  
   sig <- as.data.frame(matrix(0,nrow=length(index_p)+length(index_n),ncol=ncol(res@fit@W)))
-  sig[c(index_p),] <- as.data.frame(res@fit@W) %>%
-    set_colnames(paste0("sig_",1:ncol(.)))
+  
+  sig[c(index_p),] <- as.data.frame(res@fit@W) %>% set_colnames(paste0("sig_",1:ncol(.)))
   
   expo <- as.matrix(res@fit@H)
   
@@ -105,7 +103,7 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
   p_sig <- sig_plot(sig)
   
   #output sig and expo
-  expo <- as.data.frame(t(expo)) %>% cbind(.,samplename_random) 
+  expo <- as.data.frame(t(expo)) %>% mutate(samplename = ccfMat[,101])
   colnames(expo)[1:rank] <- paste0("sig_",1:rank)
   
   save(expo,file=paste0(output,type,'/',type,'_',n_sample,"_expowithsample_",Sys.Date(),".RData"))
@@ -123,7 +121,8 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank){
 #' @return save nmf results in output folder and plot signature for all cancer types
 #' @export
 #' @import cowplot
-nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
+#' @import ggplot2
+nmf_sig_all_plot <- function(input_folder,output,rank_summary,MatType="fraction",unit=NA) {
   
   if (!dir.exists(output)) dir.create(output)
   
@@ -132,15 +131,14 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary) {
   cancertype <- as.character(rank_summary$cancertype)
  
   j = 0
-  
   for (i in 1:length(cancertype)) {
     tryCatch({
       type <- cancertype[i]
       print(paste0("load ",i,"th type - ",type))
       
-      rank = as.numeric(subset(rank_summary,cancertype == type)$rank)
+      rank_i = as.numeric(subset(rank_summary,cancertype == type)$rank)
       
-      nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank=rank)
+      nmf_result <- nmf_sig_plot_type(type,input_folder=input_folder,output=output,rank=rank_i,MatType=MatType,unit=unit)
       
       p_sig <- nmf_result[[1]]
       n_sample <- nmf_result[[2]]
