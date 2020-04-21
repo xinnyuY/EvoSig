@@ -11,7 +11,7 @@
 #' @return CCF matrix for each cancer type
 #' @export
 #' @import dplyr
-EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postSummaryBuild=F,TCGA=F,ICGC=F,ccfupper=1,minsample=30,minmutation=30,mindepth=100,typefile=NA) {
+EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postSummaryBuild=F,TCGA=F,ICGC=F,ccfupper=1,minsample=30,minmutation=30,mindepth=100,typefile=NA,matrixtype="fraction") {
   
   # Step 1.1: build post_summary or load from file
   if (is.na(post_summary) | postSummaryBuild) {

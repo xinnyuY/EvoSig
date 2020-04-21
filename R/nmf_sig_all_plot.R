@@ -56,10 +56,6 @@ sig_plot <- function(sig){
 #' @importFrom NMF nmf
 #' @importFrom magrittr %>% set_colnames
 #' @export
-
-input_folder = Matrix_folder
-output = nmf_folder
-type= "ACC"
 nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank,unit){
   
   type_path <- paste0(input_folder,type,"/")

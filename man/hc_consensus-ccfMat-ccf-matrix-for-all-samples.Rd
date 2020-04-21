@@ -2,25 +2,43 @@
 % Please edit documentation in R/hc_consensus.R
 \name{hc_consensus ccfMat ccf matrix for all samples}
 \alias{hc_consensus ccfMat ccf matrix for all samples}
-\alias{hc_consensus}
+\alias{hc_consensus_sig}
+\alias{sig_assignment}
 \title{Plotting for HC results}
 \usage{
-hc_consensus(combine_sig, cluster, output, ccfMatrix, distance = "euclidean")
+hc_consensus_sig(
+  input_folder,
+  output_folder,
+  cancertype,
+  min.nc,
+  max.nc,
+  method = "ward.D2",
+  index = "hubert",
+  distance = "euclidean"
+)
+
+sig_assignment(signature, ccfMatrix, output = NA)
 }
 \arguments{
-\item{combine_sig}{combined signatures for all cancer types}
+\item{distance}{distance function}
 
-\item{cluster}{clustering number}
+\item{signature}{signature}
+
+\item{ccfMatrix}{ccfmatrix}
 
 \item{output}{output folder path}
 
-\item{ccfMatrix}{ccf matrix for all samples}
+\item{combine_sig}{combined signatures for all cancer types}
 
-\item{distance}{distance function}
+\item{cluster}{clustering number}
 }
 \value{
+consensus_sig
+
 exposure
 }
 \description{
 Plotting for HC results
+
+sig_assignment
 }

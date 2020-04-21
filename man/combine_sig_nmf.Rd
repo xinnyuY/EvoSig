@@ -4,10 +4,12 @@
 \alias{combine_sig_nmf}
 \title{Combine signatures from different cancer type together}
 \usage{
-combine_sig_nmf(input_folder, cancertype)
+combine_sig_nmf(input_folder, output_folder = NA, cancertype)
 }
 \arguments{
 \item{input_folder}{folder stores signatures for each type}
+
+\item{output_folder}{output_folder}
 
 \item{cancertype}{cancer type list}
 }

@@ -16,7 +16,8 @@ EvoSig_input(
   minsample = 30,
   minmutation = 30,
   mindepth = 100,
-  typefile = NA
+  typefile = NA,
+  matrixtype = "fraction"
 )
 }
 \arguments{

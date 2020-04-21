@@ -213,7 +213,7 @@ ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankE
         for (i in 1:ntype){
           
           type <-  typelist[i]
-          cat(paste0("\n >>>> loading ",i,'th type - ',type," <<<< \n"))
+          cat(paste0("\n >>>> loading for ",i,'th type - ',type," <<<< \n"))
           
           samplelist_type <- subset(post_summary,cancertype==type)$samplename
           n_sample <- length(samplelist_type)
