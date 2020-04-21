@@ -29,8 +29,14 @@ EvoSig_input <- function(Ccube_folder,output,ccfMatBuild=F,post_summary=NA,postS
   
   post_summary <- subset(post_summary,cancertype %in% types$cancertype)
   
+  if (!is.na(output)) {
+    
+    if (!dir.exists(output)) {
+      dir.create(output)
+    } 
   save(post_summary,file=paste0(output,nrow(post_summary),"_post_summary_x100_n",minsample,".RData"))
   write.csv(types,file=paste0("type_summary_x100_n",minsample,".csv"))
+  }
   
   # Step 2: Construct ccf matrix for samples in the post_summary by types and for all and save the result to Matrix_folder
   if (ccfMatBuild){

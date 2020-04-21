@@ -22,7 +22,7 @@ load_ccf <- function(samplename,input){
           argcheck = Check)
           }
   if (exists("ssm")) return(ssm) else
-    if (exists("ccubeRes")) return(ccubeRes$ssm) else
+    if (exists("ccubeRes")) return(ccubeRes$ssm) 
 }
 #' create multiple dir
 #' @name multi.dir.create

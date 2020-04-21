@@ -56,6 +56,10 @@ sig_plot <- function(sig){
 #' @importFrom NMF nmf
 #' @importFrom magrittr %>% set_colnames
 #' @export
+
+input_folder = Matrix_folder
+output = nmf_folder
+type= "ACC"
 nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank,unit){
   
   type_path <- paste0(input_folder,type,"/")
@@ -75,7 +79,7 @@ nmf_sig_plot_type <- function(type,MatType="fraction",input_folder,output,rank,u
   load(file=file_path)
   
   #format rank summary file
-  if (exists("ccfFractioMatrix"))ccfMat <- ccfFractionMatrix
+  if (exists("ccfFractionMatrix"))ccfMat <- ccfFractionMatrix
   if (exists("ccfCountMatrix")) ccfMat <- ccfCountMatrix
   
   n_sample <- nrow(ccfMat)
