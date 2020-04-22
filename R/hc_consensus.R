@@ -68,17 +68,19 @@ hc_consensus_sig <- function(input_folder,output_folder,cancertype,min.nc,max.nc
 #' @param output output folder path
 #' @return exposure
 #' @import dplyr
+#' @import crayon
 #' @importFrom rlang .data
 #' @importFrom cowplot save_plot
 #' @importFrom YAPSA LCD
 #' @export
 sig_assignment <- function(signature,ccfMatrix,output=NA){
+  
   ccfMatrix[is.na(ccfMatrix)] = 0
   
   exposure <-LCD(ccfMatrix,signature) 
   exposure <- as.data.frame(t(exposure)) %>% set_colnames(paste0("sig_",1:ncol(.))) 
   
-  if (!is.na(output)) save(exposure,file=paste0(output,"/",distance,"_",cluster,"_lcd_exposure.RData"))
+  if (!is.na(output)) save(exposure,file=paste0(output,"/lcd_exposure",Sys.Data,".RData"))
   
   return(exposure)
 }

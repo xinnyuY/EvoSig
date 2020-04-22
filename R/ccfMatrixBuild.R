@@ -166,7 +166,7 @@ ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename
     
     if (n_sample == 1) {
       ccfBandFractionMat <- ccfBandCountsMat/sum(ccfBandCountsMat)
-      ccfBandFractionMat.random <- ccfBandFractionMat[sample(1:(rows-1))]
+      ccfBandFractionMat.random <-ccfBandFractionMat[sample(1:(rows-1))]
       ccfBandCountsMat.random <- ccfBandCountsMat[sample(1:(rows-1))]
     } else {
       ccfBandFractionMat <- apply(ccfBandCountsMat,2,function(x) x/sum(x))

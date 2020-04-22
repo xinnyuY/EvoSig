@@ -6,47 +6,77 @@
 #' @export
 #' @importFrom cowplot plot_grid
 #' @importFrom gridExtra arrangeGrob grid.arrange
+#' @import dplyr
+#' @import ggplot2
+#' @import reshape2
 rank_estimate_plot <- function(outputFolder,rankfilepath) {
   
-  file <- unique(unlist(lapply(dir(outputFolder),function(x) strsplit(x,"_")[[1]][[1]])))
-  rank_blank <- data.frame(cancertype=file,rank=NA,rss_suggested_rank=NA)
+  typelist <- unique(unlist(lapply(dir(outputFolder),function(x) strsplit(x,"_")[[1]][[1]])))
+  rank_blank <- data.frame(cancertype=typelist,rank=NA,rss_suggested_rank=NA)
   
-
-  for (i in 1:length(file)) {
+  for (i in 1:length(typelist)) {
     tryCatch({
-        filename <- file[i]
-        estimate <- read.csv(paste0(outputFolder ,filename,"_ccfCountMatrix.csv")) %>% mutate(type='normal')
-        estimate_random <- read.csv(paste0(outputFolder ,filename,"_ccfCountMatrix.random.csv")) %>% mutate(type='random')
+        type <- typelist[i]
+        estimate <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.csv")) %>% mutate(Data='normal')
+        estimate_random <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.random.csv")) %>% mutate(Data='random')
         
-        print(paste0("plot for ",filename)) 
-        estimate_rank <- rbind(estimate,estimate_random)
+        estimate_rank <- rbind(estimate,estimate_random) %>% filter(rank>2)
+        xx <- reshape2::melt(estimate_rank,id=c("rank","Data")) %>% mutate(Measure=NA)
+        xx$variable <- as.character(xx$variable)
+       
+        xx[which(xx$variable=="dispersion"),]$Measure <- "Best fit"
+        xx[which(xx$variable=="cophenetic"),]$Measure <- "Consensus"
+        xx[which(xx$variable=="sparseness1"),]$Measure <- "Basis"
+        xx[which(xx$variable=="sparseness2"),]$Measure <- "Coefficients"
+        xx[c(which(xx$variable=="sparseness2"),which(xx$variable=="sparseness1")),]$variable <- "sparseness"
+        xx[which(xx$variable=="rss"),]$Measure <- "Consensus"
+        xx <- subset(xx,variable %in% c("cophenetic","dispersion","rss","sparseness"))
         
-        rss_decrease <-  which((estimate[order(estimate$rank),]$rss[1:10]-estimate[order(estimate$rank),]$rss[2:11]) - (estimate_random[order(estimate_random$rank),]$rss[1:10]-estimate_random[order(estimate_random$rank),]$rss[2:11])<0)[1]
-        rank_blank[which(rank_blank$cancertype == filename),]$rss_suggested_rank <- rss_decrease + 1
+        min_rank = min(xx$rank)
+        
+        idx = 1:(nrow(estimate)-1)
+        rss_decrease <-  min_rank -1 + which((estimate[order(estimate$rank),]$rss[idx]-estimate[order(estimate$rank),]$rss[idx+1]) - (estimate_random[order(estimate_random$rank),]$rss[idx]-estimate_random[order(estimate_random$rank),]$rss[idx+1])<0)[1]
+        rank_blank[which(rank_blank$cancertype == type),]$rss_suggested_rank <- rss_decrease 
          
-        write.csv(estimate_rank,paste0(outputFolder,filename,'_rank_summary.csv'))
+        write.csv(estimate_rank,paste0(outputFolder,type,'_rank_summary.csv'))
         
-        pdf(paste0(outputFolder,filename,'_rank_summary.pdf'),width = 12,height = 6)
-        p1 <- ggplot(data=estimate_rank,aes(x=rank,y=cophenetic,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-        p2 <- ggplot(data=estimate_rank,aes(x=rank,y=dispersion,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-        p3 <- ggplot(data=estimate_rank,aes(x=rank,y=evar,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-        p4 <- ggplot(data=estimate_rank,aes(x=rank,y=rss,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-        p5 <- ggplot(data=estimate_rank,aes(x=rank,y=euclidean,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "none",axis.title.x=element_blank())
-        p6 <- ggplot(data=estimate_rank,aes(x=rank,y=kl,group=type)) + geom_line(aes(color=type))+geom_point(aes(color=type))+theme(legend.position = "bottom",axis.title.x=element_blank())
-        p7 <- ggplot(data=estimate_rank) + geom_line(aes(x=rank,y=sparseness1,group=type,color=type))+geom_line(aes(x=rank,y=sparseness2,group=type,color=type))+geom_point(aes(x=rank,y=sparseness2,group=type,color=type))+theme(legend.position = "none",axis.title.x=element_blank())
+        command1 <- paste0('g',i,'<-ggplot(data=xx,aes(x=rank,y=value))+ geom_line(aes(lty=Data,color=Measure),cex=1)+geom_point(aes(shape=Data,color=Measure),cex=2)+facet_wrap(~variable,scales="free",nrow=1)+
+          labs(title=paste0("Rank estimate for ",type),subtitle=paste0("- rss suggested rank = ",rss_decrease))+
+          scale_x_continuous(breaks = min(xx$rank):max(xx$rank))+theme_grey()+ theme(strip.background = element_rect(fill="orange"),strip.text = element_text(colour ="white",size=14))')
         
-        g_legend<-function(a.gplot){
-          tmp <- ggplot_gtable(ggplot_build(a.gplot))
-          leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
-          legend <- tmp$grobs[[leg]]
-          return(legend)}
-        
-        mylegend <-g_legend(p6)
-        
-        print(grid.arrange(arrangeGrob(p1,p2,p3,p4,p5,p6+theme(legend.position = "none"),nrow=2),mylegend,nrow=2,top=paste0("NMF rank estimate for ",filename),heights=c(10, 1)))
-        dev.off()
+        command2 <- paste0("print(g",i,")")
+        eval(parse(text=command1))
+        eval(parse(text=command2))
+      
     },error=function(e) print("error!"))
   }
-  
+    if (exists("g1")) {
+    # output signature plot for all cancer types
+    j <- length(typelist) 
+    n_file <-  j %% 8
+    
+    if (n_file==0) {
+      n_pdf <- (j %/% 8) 
+    } else {
+      n_pdf <- (j %/% 8)+1
+    }
+    
+    for (i in 1:n_pdf) {
+      if (i != n_pdf) {
+        commands1 <- paste0("pdf(file=paste0(outputFolder",",'rank_estimate_g',(8*i-7),'-',8*i,'_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("p",i,"<- plot_grid(paste0('g',(8*i-7):(8*i),collapse=','),align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))") 
+      } else {
+        commands1 <- paste0("pdf(file=paste0(outputFolder",",'rank_estimate_g',(8*i-8),'-',8*i-8+n_file,'_',Sys.Date(),'.pdf'),height=25,width=12)")
+        commands2 <- paste0("p",i," <- plot_grid(paste0('g',(8*i-8):(8*i-8+n_file),collapse=','),align='V',ncol=1,rel_heights = c(0.1,0.1,0.1,0.1,0.1,0.1,0.1,0.1))")
+      }
+      commands3 <- paste0("print(p",i,")")
+      commands4 <- "dev.off()"
+      
+      eval(parse(text=commands1))
+      eval(parse(text=commands2))
+      eval(parse(text=commands3))
+      eval(parse(text=commands4))
+    }
   write.csv(rank_blank,file=rankfilepath)
+  }
 }
