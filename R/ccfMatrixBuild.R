@@ -136,7 +136,7 @@ Build_post_summary <- function(input,output=NA, typefile=NA,minsample=30,multico
 #' @export
 #' @importFrom NMF randomize
 #' @import dplyr
-ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename=FALSE){
+ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA){
     
     n_sample <- length(samplelist)
     rows <- upper/0.01 + 1
@@ -174,15 +174,10 @@ ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename
       ccfBandFractionMat.random <- apply(ccfBandCountsMat.random,2,function(x) x/sum(x))
     }
     
-    outputlist <- list(ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat,ccfBandFractionMat.random)
-    
-    if (add_samplename) {
-      outputlist <- lapply(outputlist,function(x){x <- as.data.frame(t(x)) %>% mutate(samplename=samplelist)})
-    }
+    outputlist <- list(ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat,ccfBandFractionMat.random,samplelist)
   
     return(outputlist)
   }
-
 #' Build count matrix for input samples per cancer type
 #' @name ccfMatrixBuild
 #' @param post_summary samples' name
@@ -194,7 +189,7 @@ ccfMatBuild <- function(samplelist,upper,input_folder,genelist=NA,add_samplename
 #' @return CCF matrix for each cancer type
 #' @export
 #' @import dplyr
-ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankEstimateType="fraction",add_samplename=TRUE,minsample=30){
+ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,minsample=30){
   
       samplelist_all <- post_summary$samplename
       type <- post_summary %>% group_by(.data$cancertype)%>% summarize(n=n())
@@ -218,10 +213,10 @@ ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankE
           samplelist_type <- subset(post_summary,cancertype==type)$samplename
           n_sample <- length(samplelist_type)
           
-          ccfBandCountsMat <- suppressWarnings(ccfMatBuild(samplelist_type,input_folder = input_folder,upper=ccfupper,add_samplename = add_samplename))
+          ccfBandCountsMat <- suppressWarnings(ccfMatBuild(samplelist_type,input_folder = input_folder,upper=ccfupper))
           
           ccfCountMatrix <-ccfBandCountsMat[[1]]
-          ccfCountsMatrix.random <- ccfBandCountsMat[[2]]
+          ccfCountMatrix.random <- ccfBandCountsMat[[2]]
           ccfFractionMatrix <- ccfBandCountsMat[[3]]
           ccfFractionMatrix.random <- ccfBandCountsMat[[4]]
           
@@ -230,37 +225,47 @@ ccfMatBuild_output <- function(post_summary,input_folder,output,ccfupper=1,RankE
          
           # Output Matrix 
           output_format <- paste0(ccfOutput_path,type,"/",type,"_", n_sample,"_0-",ccfupper)
-          output_format_rank <- paste0(ccfOutput_rank_path,type,"_", n_sample,"_0-",ccfupper)
-          
+          output_format_rank_fraction <- paste0(ccfOutput_rank_path,"fraction/",type,"_", n_sample,"_0-",ccfupper)
+          output_format_rank_count <- paste0(ccfOutput_rank_path,"count/",type,"_", n_sample,"_0-",ccfupper)
+          if (!dir.exists(paste0(ccfOutput_rank_path,"fraction/"))) dir.create(paste0(ccfOutput_rank_path,"fraction/"))
+          if (!dir.exists(paste0(ccfOutput_rank_path,"count/"))) dir.create(paste0(ccfOutput_rank_path,"count/"))                                                                     
+                                                                               
+                                                                               
           save(ccfCountMatrix,file=paste0(output_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
-          save(ccfCountsMatrix.random,file=paste0(output_format,"_ccfCountMatrix.random_",Sys.Date(),".RData"))
+          save(ccfCountMatrix.random,file=paste0(output_format,"_ccfCountMatrix.random_",Sys.Date(),".RData"))
           save(ccfFractionMatrix,file=paste0(output_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
           save(ccfFractionMatrix.random,file=paste0(output_format,"_ccfFractionMatrix.random_",Sys.Date(),".RData"))
           
           # output to rank estimate folder
-          if (RankEstimateType=="fraction") {
-            write.csv(ccfFractionMatrix.random,file=paste0(output_format_rank,"_ccfFractionMatrix.random_",Sys.Date(),".csv"))
-            write.csv(ccfFractionMatrix,file=paste0(output_format_rank,"_ccfFractionMatrix_",Sys.Date(),".csv"))
-          }
-          
-          if (RankEstimateType=="count") {
-            write.csv(ccfCountsMatrix.random,file=paste0(output_format_rank,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
-            write.csv(ccfCountMatrix,file=paste0(output_format_rank,"_ccfCountMatrix_",Sys.Date(),".csv"))
-          }
+          write.csv(ccfFractionMatrix.random,file=paste0(output_format_rank_fraction,"_ccfFractionMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfFractionMatrix,file=paste0(output_format_rank_fraction,"_ccfFractionMatrix_",Sys.Date(),".csv"))
+          write.csv(ccfCountMatrix.random,file=paste0(output_format_rank_count,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
+          write.csv(ccfCountMatrix,file=paste0(output_format_rank_count,"_ccfCountMatrix_",Sys.Date(),".csv"))
+        
         }
+        ccfBandCountsMat_all <- suppressWarnings(ccfMatBuild(samplelist_all,input_folder = input_folder,upper=ccfupper))
+        
+        # ouput ccf matrix for all samples
+        output_all_format <- paste0(output,"ccfMat/All/All_",length(samplelist_all),"_0-",ccfupper)
+        output_all_format_fraction <- paste0(output,"ccfMat/rank_estimate/fraction/All_",length(samplelist_all),"_0-",ccfupper)
+        output_all_format_count <- paste0(output,"ccfMat/rank_estimate/count/All_",length(samplelist_all),"_0-",ccfupper)
+        
+        ccfCountMatrix_all <- ccfBandCountsMat_all[[1]]
+        ccfCountMatrix_all.random <- ccfBandCountsMat_all[[2]]
+        ccfFractionMatrix_all<- ccfBandCountsMat_all[[3]]
+        ccfFractionMatrix_all.random <- ccfBandCountsMat_all[[4]]
+      
+        # output to rank estimate folder
+        write.csv(ccfCountMatrix_all,file=paste0(output_all_format_count,"_ccfCountMatrix_",Sys.Date(),".csv"))
+        write.csv(ccfCountMatrix_all.random,file=paste0(output_all_format_count,"_ccfCountMatrix.random_",Sys.Date(),".csv"))
+        write.csv(ccfFractionMatrix_all,file=paste0(output_all_format_fraction,"_ccfFractionMatrix_all_",Sys.Date(),".csv"))
+        write.csv(ccfFractionMatrix_all.random,file=paste0(output_all_format_fraction,"_ccfFractionMatrix_all.random_",Sys.Date(),".csv"))
+        
+        save(ccfCountMatrix_all,file=paste0(output_all_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
+        save(ccfFractionMatrix_all,file=paste0(output_all_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
+        
+        cat(paste0("\n Done, saved results to ",output))
       }
      
-        # ouput ccf matrix for all samples
-        ccfBandCountsMat_all <- suppressWarnings(ccfMatBuild(samplelist_all,input_folder = input_folder,upper=ccfupper,add_samplename = add_samplename))
-    
-        ccfCountMatrix_all <- ccfBandCountsMat_all[[1]]
-        ccfFractionMatrix_all <- ccfBandCountsMat_all[[3]]
-          
-        output_all_format <- paste0(ccfOutput_all_path,"All_",length(samplelist_all),"_0-",ccfupper)
-          
-        # Output Matrix 
-        save(ccfCountMatrix_all,file=paste0(output_all_format,"_ccfCountMatrix_",Sys.Date(),".RData"))
-        save( ccfFractionMatrix_all,file=paste0(output_all_format,"_ccfFractionMatrix_",Sys.Date(),".RData"))
-    
-        cat(paste0("\n Done, saved results to ",output))
+       
 }

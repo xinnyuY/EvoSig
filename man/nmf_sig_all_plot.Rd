@@ -9,7 +9,7 @@ nmf_sig_all_plot(
   output,
   rank_summary,
   MatType = "fraction",
-  unit = NA
+  nrun = 100
 )
 }
 \arguments{

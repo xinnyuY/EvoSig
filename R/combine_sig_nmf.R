@@ -7,7 +7,7 @@
 #' @export
 #' @return matrix combining all signature matrix
 combine_sig_nmf <- function(input_folder,output_folder=NA,cancertype){
-  
+
   for (i in 1:length(cancertype)){
       tryCatch({
         type <- cancertype[i]

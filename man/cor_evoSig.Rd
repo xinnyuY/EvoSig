@@ -17,6 +17,7 @@ cor_evoSig(file, varcol, n_sig, output = "r")
 }
 \value{
 depends on output choice
+#@import dplyr
 }
 \description{
 Pre-processing before computing correlation and set the output formate

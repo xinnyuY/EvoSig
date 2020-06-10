@@ -4,7 +4,7 @@
 \alias{rank_estimate_plot}
 \title{Plotting rank estimate}
 \usage{
-rank_estimate_plot(outputFolder, rankfilepath)
+rank_estimate_plot(outputFolder, rankfilepath, format)
 }
 \arguments{
 \item{outputFolder}{folder stores rank estimate files}

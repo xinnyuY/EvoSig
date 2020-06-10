@@ -9,16 +9,24 @@
 #' @import dplyr
 #' @import ggplot2
 #' @import reshape2
-rank_estimate_plot <- function(outputFolder,rankfilepath) {
+rank_estimate_plot <- function(outputFolder,rankfilepath,format) {
   
   typelist <- unique(unlist(lapply(dir(outputFolder),function(x) strsplit(x,"_")[[1]][[1]])))
   rank_blank <- data.frame(cancertype=typelist,rank=NA,rss_suggested_rank=NA)
   
+  i = 1
   for (i in 1:length(typelist)) {
     tryCatch({
         type <- typelist[i]
-        estimate <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.csv")) %>% mutate(Data='normal')
-        estimate_random <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.random.csv")) %>% mutate(Data='random')
+        if (format=="fraction"){
+          estimate <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.csv")) %>% mutate(Data='normal')
+          estimate_random <- read.csv(paste0(outputFolder,type,"_ccfFractionMatrix.random.csv")) %>% mutate(Data='random')
+        }
+        
+        if (format=="count"){
+          estimate <- read.csv(paste0(outputFolder,type,"_ccfCountMatrix.csv")) %>% mutate(Data='normal')
+          estimate_random <- read.csv(paste0(outputFolder,type,"_ccfCountMatrix.random.csv")) %>% mutate(Data='random')
+        }
         
         estimate_rank <- rbind(estimate,estimate_random) %>% filter(rank>2)
         xx <- reshape2::melt(estimate_rank,id=c("rank","Data")) %>% mutate(Measure=NA)
@@ -35,7 +43,7 @@ rank_estimate_plot <- function(outputFolder,rankfilepath) {
         min_rank = min(xx$rank)
         
         idx = 1:(nrow(estimate)-1)
-        rss_decrease <-  min_rank -1 + which((estimate[order(estimate$rank),]$rss[idx]-estimate[order(estimate$rank),]$rss[idx+1]) - (estimate_random[order(estimate_random$rank),]$rss[idx]-estimate_random[order(estimate_random$rank),]$rss[idx+1])<0)[1]
+        rss_decrease <-  min_rank + which((estimate[order(estimate$rank),]$rss[idx]-estimate[order(estimate$rank),]$rss[idx+1]) - (estimate_random[order(estimate_random$rank),]$rss[idx]-estimate_random[order(estimate_random$rank),]$rss[idx+1])<0)[1]
         rank_blank[which(rank_blank$cancertype == type),]$rss_suggested_rank <- rss_decrease 
          
         write.csv(estimate_rank,paste0(outputFolder,type,'_rank_summary.csv'))

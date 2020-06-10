@@ -7,11 +7,9 @@
 \title{Plotting for HC results}
 \usage{
 hc_consensus_sig(
-  input_folder,
+  combine_sig,
+  cluster,
   output_folder,
-  cancertype,
-  min.nc,
-  max.nc,
   method = "ward.D2",
   index = "hubert",
   distance = "euclidean"
@@ -20,6 +18,12 @@ hc_consensus_sig(
 sig_assignment(signature, ccfMatrix, output = NA)
 }
 \arguments{
+\item{combine_sig}{combined signatures for all cancer types}
+
+\item{cluster}{clustering number}
+
+\item{output_folder}{output folder path}
+
 \item{distance}{distance function}
 
 \item{signature}{signature}
@@ -27,10 +31,6 @@ sig_assignment(signature, ccfMatrix, output = NA)
 \item{ccfMatrix}{ccfmatrix}
 
 \item{output}{output folder path}
-
-\item{combine_sig}{combined signatures for all cancer types}
-
-\item{cluster}{clustering number}
 }
 \value{
 consensus_sig

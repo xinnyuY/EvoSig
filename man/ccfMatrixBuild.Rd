@@ -10,8 +10,6 @@ ccfMatBuild_output(
   input_folder,
   output,
   ccfupper = 1,
-  RankEstimateType = "fraction",
-  add_samplename = TRUE,
   minsample = 30
 )
 }
@@ -24,9 +22,9 @@ ccfMatBuild_output(
 
 \item{ccfupper}{set CCF upper bound}
 
-\item{RankEstimateType}{output rank estimate matirx format}
-
 \item{genelist}{specify whether to only count for certain genes}
+
+\item{RankEstimateType}{output rank estimate matirx format}
 }
 \value{
 CCF matrix for each cancer type

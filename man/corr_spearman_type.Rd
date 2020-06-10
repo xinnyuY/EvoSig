@@ -2,7 +2,7 @@
 % Please edit documentation in R/Association_heatmap.r
 \name{corr_spearman_type}
 \alias{corr_spearman_type}
-\title{Basic correlation function for measures with each cancer type}
+\title{Basic correlation function for each cell}
 \usage{
 corr_spearman_type(xx, n_sig, varcol, output)
 }
@@ -19,5 +19,5 @@ corr_spearman_type(xx, n_sig, varcol, output)
 depends on output choice
 }
 \description{
-Basic correlation function for measures with each cancer type
+Basic correlation function for each cell
 }

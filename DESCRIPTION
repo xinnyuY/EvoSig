@@ -16,3 +16,17 @@ RoxygenNote: 7.1.0
 Encoding: UTF-8
 NeedsCompilation: no
 Packaged: 2020-02-09 04:26:34 UTC; yangx
+Collate: 
+    'Association_heatmap.r'
+    'Extract_sig.R'
+    'SNV_exposure.R'
+    'TCGAtypefile.R'
+    'Wrap_up.R'
+    'ccfMatrixBuild.R'
+    'combine_sig_nmf.R'
+    'hc_cluster_test.R'
+    'hc_consensus.R'
+    'help_function.R'
+    'immune_landscape_measure.R'
+    'nmf_sig_all_plot.R'
+    'rank_estimate_plot.R'

@@ -4,13 +4,7 @@
 \alias{ccfMatBuild}
 \title{Build CCF Matrix for all samples within region 0-upper}
 \usage{
-ccfMatBuild(
-  samplelist,
-  upper,
-  input_folder,
-  genelist = NA,
-  add_samplename = FALSE
-)
+ccfMatBuild(samplelist, upper, input_folder, genelist = NA)
 }
 \arguments{
 \item{samplelist}{samples' nam+e}
