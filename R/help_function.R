@@ -35,7 +35,7 @@ cor = function(df,va,vb){
 #' @import ggpubr
 #' @import ggplot2
 #' @importFrom RColorBrewer brewer.pal
-cor_facet = function(df,va,vb,facet,heatmap=FALSE){
+cor_facet = function(df,va,vb,facet,heatmap=FALSE,title=NA){
   coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
   facet_idx=which(colnames(df)==facet)
 
@@ -62,7 +62,7 @@ cor_facet = function(df,va,vb,facet,heatmap=FALSE){
       geom_tile()+ geom_text(aes(y=Var2,x=Var1,label=r),size=4,col='#ffffff')+
       facet_grid(cols=vars(label),switch="y",scale="free",space="free")+ 
       scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation") +
-      labs(x="",y="")+ theme_pubclean()+
+      labs(x="",y="",title=title)+ theme_pubclean()+
       theme(axis.text.x = element_text(angle=90,vjust=0.5))
     p_heatmap
     return(list(cor_table,p_heatmap))
