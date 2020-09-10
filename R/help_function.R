@@ -28,6 +28,7 @@ cor = function(df,va,vb){
 #' @param vb Column indexs of variables B in df
 #' @param facet name of group variable
 #' @param heatmap specify whether plot association heatmap
+#' @param title Title for association heatmap
 #' @return A table including correlation r,p,n between variables A and variables B during group variable and association heatmap (optional)
 #' @import dplyr
 #' @import plyr
