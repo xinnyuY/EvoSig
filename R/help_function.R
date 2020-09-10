@@ -1,5 +1,5 @@
 #' Correlation calculation function 
-#' @name corr_spearman_type
+#' @name cor
 #' @param df exposure file merged with measures of interest
 #' @param va Column indexs of variables A in df
 #' @param vb Column indexs of variables B in df
@@ -19,6 +19,54 @@ cor = function(df,va,vb){
       left_join(r,p,by=c("Var1","Var2")) %>% mutate(n=as.numeric(n),significant=ifelse(adj.p<0.05,1,0))
     }
   } else {rep(NA,5)}
+}
+
+#' Correlation calculation function by group and plot association heatmap
+#' @name cor_facet
+#' @param df exposure file merged with measures of interest
+#' @param va Column indexs of variables A in df
+#' @param vb Column indexs of variables B in df
+#' @param facet name of group variable
+#' @param heatmap specify whether plot association heatmap
+#' @return A table including correlation r,p,n between variables A and variables B during group variable and association heatmap (optional)
+#' @import dplyr
+#' @import plyr
+#' @import reshape2
+#' @import ggpubr
+#' @import ggplot2
+#' @importFrom RColorBrewer brewer.pal
+cor_facet = function(df,va,vb,facet,heatmap=FALSE){
+  coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
+  facet_idx=which(colnames(df)==facet)
+
+  command1 <- paste0("cor_table_all <- cor(df,va=va,vb=vb) %>% mutate(",facet,"='All')")
+  eval(parse(text=command1))
+  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% rbind(cor_table_all) %>% mutate(label=paste0(",facet,",' \n (n=',n,')'))") 
+  eval(parse(text=command2))
+  
+  cor_table_plot <- cor_table %>%
+    mutate(r=replace(r,(is.na(r)|adj.p>=0.05),0)) %>% # set correlation with na or p>0.05 invisible
+    mutate(r=round(r,2),Var1=paste0("Signature ",as.numeric(Var1)),Var2=as.character(Var2))
+  
+  # delete empty rows
+  non_empty_gene <- cor_table_plot %>% group_by(Var2) %>% dplyr::summarise(mean_r=mean(r)) %>% filter(mean_r!=0) %>% as.data.frame() %>% .[,1] %>% as.character()
+  
+  cor_table_plot <- subset(cor_table_plot,Var2 %in% non_empty_gene)
+  
+  if (heatmap==TRUE) {
+    commands_p <- paste0("p <- cor_table_plot %>% ggplot(aes(y=Var2,x=",facet,",fill=r)) +
+         geom_tile()+ geom_text(aes(y=Var2,x=",facet,",label=r),size=4,col='#ffffff')")
+    eval(parse(text=commands_p))
+    
+    p_heatmap <- cor_table_plot %>% ggplot(aes(y=Var2,x=Var1,fill=r)) +
+      geom_tile()+ geom_text(aes(y=Var2,x=Var1,label=r),size=4,col='#ffffff')+
+      facet_grid(cols=vars(label),switch="y",scale="free",space="free")+ 
+      scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation") +
+      labs(x="",y="")+ theme_pubclean()+
+      theme(axis.text.x = element_text(angle=90,vjust=0.5))
+    p_heatmap
+    return(list(cor_table,p_heatmap))
+  } else return(cor_table)
 }
 
 
