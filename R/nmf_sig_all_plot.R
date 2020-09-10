@@ -10,29 +10,29 @@
 #' @importFrom RColorBrewer brewer.pal
 #' @importFrom magrittr %>% set_colnames
 #' @import dplyr
-sig_plot <- function(sig,tag=NULL,col="NA"){
+sig_plot <- function(sig,tag=NULL,col=NA,theme="grey"){
   
   xx <- as.data.frame(t(apply(sig,2,function(x) x/sum(x)))) %>%
     set_colnames(1:ncol(.)) %>%
     mutate(signature=paste0("Signature ",1:nrow(.))) %>%
     melt(.,id=c("signature"))
   
-  if (col=="NA"){
+  if (is.na(col)){
     if (ncol(sig)<=8) fills <- brewer.pal(8, "Set3")[c(1,3:8,2)] else
       fills <- brewer.pal(ncol(sig), "Set3")[c(1,3:8,2,9:ncol(sig))]
   } else {fills <- col}
   
-  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=signature),stat='identity') + scale_fill_manual(values = fills)+ theme_grey()+
+  p1 <- ggplot(xx,aes(y=value,x=variable)) + geom_bar(aes(fill=signature),stat='identity') + scale_fill_manual(values = fills)+ theme_light()+
     #ggtitle(paste0("rank = ",rank,", cancertype = ",type, ", MatrixType = ",MatType )) + 
     theme(legend.title = element_blank(),
           legend.position = "none",
           strip.text.x = element_text(color= "white",size=10),
-          panel.grid.minor.y = element_blank(),
+          panel.grid= element_blank(),
           axis.title.x = element_text(color = "grey20", size = 8),
           axis.text.x = element_text(color = "grey20", size = 6),
           axis.text.y = element_text(color = "grey20", size = 6),
           plot.title = element_text(size= 10)) +
-    facet_grid(cols = vars(signature))+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") +
+    facet_grid(cols = vars(signature),scales="free")+ scale_x_discrete(breaks=c("1","50","100") ,labels=c("0", "0.5", "1"))+xlab("Cancer Cell Fraction") + ylab("") +
     labs(title="Consensus Signature of evolutionary dynamics",tag=tag)
   
   g1 <- ggplot_gtable(ggplot_build(p1))
@@ -123,5 +123,5 @@ nmf_sig_all_plot <- function(input_folder,output,rank_summary,MatType="fraction"
   
   if (!dir.exists(output)) dir.create(output)
   
-  lapply(1:nrow(rank_suammry),function(x) nmf_sig_plot_type(rank_summary[x,1],input_folder=input_folder,output=output,rank=rank_summary[x,2],MatType=MatType,nrun=nrun))
+  lapply(1:nrow(rank_summary),function(x) nmf_sig_plot_type(rank_summary[x,1],input_folder=input_folder,output=output,rank=rank_summary[x,2],MatType=MatType,nrun=nrun))
 }

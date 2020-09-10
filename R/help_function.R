@@ -1,3 +1,28 @@
+#' Correlation calculation function 
+#' @name corr_spearman_type
+#' @param df exposure file merged with measures of interest
+#' @param va Column indexs of variables A in df
+#' @param vb Column indexs of variables B in df
+#' @return A table including correlation r,p,n between variables A and variables B
+#' @import dplyr
+#' @import reshape2
+cor = function(df,va,vb){
+  res = psych::corr.test(df[,va],df[,vb],method = "spearman",use = "pairwise",adjust="holm",ci=FALSE) 
+  if (!is.null(res)) {
+    r = melt(res['r']) %>% dplyr::rename(r = value) %>% dplyr::select(-L1)
+    p = melt(res['p']) %>% dplyr::rename(adj.p = value) %>% dplyr::select(-L1)
+    n = melt(res['n']) %>% dplyr::rename(n = value) %>% dplyr::select(-L1)
+    
+    if (ncol(n)>1) {
+      left_join(left_join(r,p,by=c("Var1","Var2")),n,by=c("Var1","Var2")) %>% mutate(significant=ifelse(adj.p<0.05,1,0))
+    } else {
+      left_join(r,p,by=c("Var1","Var2")) %>% mutate(n=as.numeric(n),significant=ifelse(adj.p<0.05,1,0))
+    }
+  } else {rep(NA,5)}
+}
+
+
+
 #' Load multiple format ccf file
 #' @name load_ccf
 #' @param samplename cancer type
@@ -24,6 +49,7 @@ load_ccf <- function(samplename,input){
   if (exists("ssm")) return(ssm) else
     if (exists("ccubeRes")) return(ccubeRes$ssm) 
 }
+
 #' create multiple dir
 #' @name multi.dir.create
 #' @param list list of directory
@@ -82,6 +108,33 @@ ParseSnvCnaPcawgFormat <- function (ssm, cna) {
       filter(!is.na(major_cn) ,!is.na(minor_cn),!is.na(cn_frac),major_cn > 0)
     
     return(ssm)
+}
+
+#' Customize top strip color
+#' @name strip_color
+#' @param p plot
+#' @param col customized color
+#' @param draw whether to display in plots panal
+#' @param direction strip location
+#' @import ggplot2 
+#' @import grid
+#' @export
+strip_color <- function(p,col=signature_col,draw=FALSE,direction='top'){
+  p1 <- ggplot_gtable(ggplot_build(p))
+  k <- 1
+  
+  if (direction=='top') strip_col <- which(grepl('strip-t', p1$layout$name))
+  if (direction=='bottom') strip_col <- which(grepl('strip-b', p1$layout$name))
+  if (direction=='left') strip_col <- which(grepl('strip-l', p1$layout$name))
+  if (direction=='right') strip_col <- which(grepl('strip-r', p1$layout$name))
+  
+  for (j in strip_col) {
+    j1 <- which(grepl('rect', p1$grobs[[j]]$grobs[[1]]$childrenOrder))
+    p1$grobs[[j]]$grobs[[1]]$children[[j1]]$gp$fill <- col[k]
+    k <- k+1
   }
+  if (draw) grid.draw(p1)
+  return(p1)
+}
 
 

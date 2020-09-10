@@ -4,7 +4,7 @@
 \alias{sig_plot}
 \title{Plot signature matrix}
 \usage{
-sig_plot(sig, tag = NULL, col = "NA")
+sig_plot(sig, tag = NULL, col = NA, theme = "grey")
 }
 \arguments{
 \item{sig}{signature matrix}

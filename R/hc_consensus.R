@@ -9,9 +9,7 @@
 #' @param max.nc maximum cluster
 #' @param cancertype cancer types
 #' @return list(combine_sig,cluster)
-#' @importFrom rlang .data
 #' @import dplyr
-#' @import crayon
 #' @import NbClust
 #' @importFrom magrittr %>% set_colnames
 #' @export
@@ -43,10 +41,8 @@ hc_combine_sig <- function(input_folder,output_folder,cancertype,min.nc=3,max.nc
 #' @param distance distance function
 #' @return consensus_sig
 #' @import pheatmap
-#' @importFrom rlang .data
 #' @importFrom cowplot save_plot
 #' @import dplyr
-#' @import crayon
 #' @importFrom magrittr %>% set_colnames
 #' @importFrom grDevices colorRampPalette
 #' @importFrom RColorBrewer brewer.pal
@@ -89,8 +85,6 @@ hc_consensus_sig <- function(combine_sig,cluster,output_folder,method="ward.D2",
 #' @param output output folder path
 #' @return exposure
 #' @import dplyr
-#' @import crayon
-#' @importFrom rlang .data
 #' @importFrom cowplot save_plot
 #' @importFrom YAPSA LCD
 #' @export

@@ -17,9 +17,7 @@ Encoding: UTF-8
 NeedsCompilation: no
 Packaged: 2020-02-09 04:26:34 UTC; yangx
 Collate: 
-    'Association_heatmap.r'
     'Extract_sig.R'
-    'SNV_exposure.R'
     'TCGAtypefile.R'
     'Wrap_up.R'
     'ccfMatrixBuild.R'
