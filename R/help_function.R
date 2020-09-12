@@ -1,5 +1,5 @@
 #' Correlation calculation function 
-#' @name cor
+#' @name cor.table
 #' @param df exposure file merged with measures of interest
 #' @param va Column indexs of variables A in df
 #' @param vb Column indexs of variables B in df
@@ -7,7 +7,7 @@
 #' @import dplyr
 #' @import reshape2
 #' @export
-cor = function(df,va,vb){
+cor.table = function(df,va,vb){
   res = psych::corr.test(df[,va],df[,vb],method = "spearman",use = "pairwise",adjust="holm",ci=FALSE) 
   if (!is.null(res)) {
     r = melt(res['r']) %>% dplyr::rename(r = value) %>% dplyr::select(-L1)
@@ -42,9 +42,9 @@ cor_facet = function(df,va,vb,facet,heatmap=FALSE,title=NA){
   coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
   facet_idx=which(colnames(df)==facet)
 
-  command1 <- paste0("cor_table_all <- cor(df,va=va,vb=vb) %>% mutate(",facet,"='All')")
+  command1 <- paste0("cor_table_all <- cor.table(df,va=va,vb=vb) %>% mutate(",facet,"='All')")
   eval(parse(text=command1))
-  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% rbind(cor_table_all) %>% mutate(label=paste0(",facet,",' \n (n=',n,')'))") 
+  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor.table,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% rbind(cor_table_all) %>% mutate(label=paste0(",facet,",' \n (n=',n,')'))") 
   eval(parse(text=command2))
   
   cor_table_plot <- cor_table %>%
