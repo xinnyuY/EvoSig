@@ -6,6 +6,7 @@
 #' @return A table including correlation r,p,n between variables A and variables B
 #' @import dplyr
 #' @import reshape2
+#' @export
 cor = function(df,va,vb){
   res = psych::corr.test(df[,va],df[,vb],method = "spearman",use = "pairwise",adjust="holm",ci=FALSE) 
   if (!is.null(res)) {
@@ -36,6 +37,7 @@ cor = function(df,va,vb){
 #' @import ggpubr
 #' @import ggplot2
 #' @importFrom RColorBrewer brewer.pal
+#' @export
 cor_facet = function(df,va,vb,facet,heatmap=FALSE,title=NA){
   coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
   facet_idx=which(colnames(df)==facet)
