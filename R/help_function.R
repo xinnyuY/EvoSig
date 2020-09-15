@@ -22,7 +22,84 @@ cor.table = function(df,va,vb){
   } else {rep(NA,5)}
 }
 
-#' Correlation calculation function by group and plot association heatmap
+#' Plot scatterplot for specific measure with evo sig and subtype - 20200915
+#' @name p_scatter
+#' @param df exposure file merged with measures of interest
+#' @param sig Column indexs of evo signature
+#' @param vb Column indexs of all measures in association heatmap in df
+#' @param facet name of facet variable consistent with association heatmap
+#' @return Scatterplots
+#' @import dplyr
+#' @import ggpubr
+#' @import scales
+#' @import ggplot2
+#' @importFrom gridExtra grid.arrange
+#' @export
+p_scatter <- function(df,vb,var,sig,facet) {
+  
+  var_name = colnames(df)[var]
+ 
+  cor_table = cor_facet(df=df,va=sig,vb=vb,facet=facet) %>%
+    mutate(p_label=paste0("R =",r," ,p = ",round(adj.p,4)),significant=as.factor(significant)) %>%
+    filter(Var2==var_name)
+  
+  colnames(df)[var]="Var"
+  
+  facet_idx = which(colnames(df)==facet)
+  colnames(df)[facet_idx]="facet"
+  
+  df_new <- df %>%
+    melt(id=colnames(df)[-sig]) %>%
+    dplyr::rename(Var1=variable) %>%
+    drop_na(Var) %>%
+    mutate(facet=paste0("cluster ",as.numeric(facet))) %>%
+    filter(value>0,Var>0) %>%
+    left_join(cor_table,by=c("Var1","facet")) %>%
+    left_join(subset(cor_table,facet=="All") %>% dplyr::rename(all_p_label= p_label,all_significant=significant,all_label=label) %>% .[,c(2,7:9)],
+              by="Var1")
+  
+  fun_median_y <- function(x){
+    return(data.frame(y=median(x),label=round(median(x,na.rm=T),2)))}
+  
+  ymin = min(df_new$Var); ymax=max(df_new$Var);ymean <- mean(df_new$Var)
+  xmax = max(df_new$value); xmin=min(df_new$value);xmean=mean(df_new$value)
+ 
+  p1 <- ggplot(df_new)+
+    scale_x_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
+    scale_y_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
+    geom_point(aes(x=value,y=Var,colour = significant))+
+    geom_smooth(method = "lm",aes(value,Var,color=significant))+
+    geom_boxplot(aes(x=0,y=Var),width=xmax/100,varwidth=TRUE)+ 
+    geom_boxplot(aes(x=value,y=ymin-yoffset),orientation="y",width=ifelse(which.min(c(ymax/100,ymin))==1,ymax/100,ymin))+
+    facet_grid(cols=vars(label),rows=vars(Var1),scale="free")+
+    labs(y="",x="")+
+    theme_pubclean()+
+    geom_text(aes(y=ymax*0.75,x=xmean*1.25,label=p_label,color=significant),size=4,check_overlap=TRUE)+
+    scale_colour_manual(values=c("grey","#1A9993FF"))+
+    theme(legend.position = "right",plot.margin = unit( c(0.2,0,0,0) , units = "lines" ) )
+  
+  
+  p_all <- df_new %>% ggplot()+
+    scale_x_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
+    scale_y_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
+    geom_point(aes(x=value,y=Var,color=all_significant))+
+    geom_smooth(method = "lm",aes(value,Var,color=all_significant))+
+    geom_boxplot(aes(x=0,y=Var),width=xmax/100,varwidth=TRUE)+ 
+    geom_boxplot(aes(x=value,y=ymin-yoffset),orientation="y",width=ifelse(which.min(c(ymax/100,ymin))==1,ymax/100,ymin))+
+    facet_grid(cols=vars(all_label),rows=vars(Var1),scale="free")+
+    labs(y=var_name,x=" ")+
+    theme_pubclean()+
+    geom_text(aes(y=ymax*0.75,x=xmean*1.25,label=all_p_label,color=all_significant),size=4,check_overlap=TRUE)+
+    scale_colour_manual(values=c("grey","#1A9993FF"))+
+    theme(strip.text.y = element_blank() , 
+          strip.background.y = element_blank(),
+          plot.margin = unit( c(0.2,0.2,0,0) , units = "lines" ),
+          legend.position = "none")
+  
+  grid.arrange(p_all,p1,nrow=1,widths=c(1,5),bottom="Evolutionary Dynamics Signature Exposure")
+  
+}
+#' Correlation calculation function by group and plot association heatmap - 20200915
 #' @name cor_facet
 #' @param df exposure file merged with measures of interest
 #' @param va Column indexs of variables A in df
@@ -38,39 +115,73 @@ cor.table = function(df,va,vb){
 #' @import ggplot2
 #' @importFrom RColorBrewer brewer.pal
 #' @export
-cor_facet = function(df,va,vb,facet,heatmap=FALSE,title=NA){
+cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALSE,flip=FALSE,keep_all=TRUE){
   coul = colorRampPalette(brewer.pal(8, "RdBu"))(256)
   facet_idx=which(colnames(df)==facet)
-
-  command1 <- paste0("cor_table_all <- cor.table(df,va=va,vb=vb) %>% mutate(",facet,"='All')")
-  eval(parse(text=command1))
-  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor.table,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% rbind(cor_table_all) %>% mutate(label=paste0(",facet,",' \n (n=',n,')'))") 
+  
+  eval(parse(text=paste0("cor_table_all <- cor.table(df,va=va,vb=vb) %>% mutate(",facet,"='All') %>% dplyr::rename(facet=",facet,")")))
+  
+  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor.table,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% dplyr::rename(facet=",facet,") %>% rbind(cor_table_all)") 
   eval(parse(text=command2))
   
-  cor_table_plot <- cor_table %>%
-    mutate(r=replace(r,(is.na(r)|adj.p>=0.05),0)) %>% # set correlation with na or p>0.05 invisible
-    mutate(r=round(r,2),Var1=paste0("Signature ",as.numeric(Var1)),Var2=as.character(Var2))
-  
-  # delete empty rows
-  non_empty_gene <- cor_table_plot %>% group_by(Var2) %>% dplyr::summarise(mean_r=mean(r)) %>% filter(mean_r!=0) %>% as.data.frame() %>% .[,1] %>% as.character()
-  
-  cor_table_plot <- subset(cor_table_plot,Var2 %in% non_empty_gene)
+  cor_table <- cor_table %>%
+    mutate(r=replace(r,is.na(r),0)) %>% # set correlation with na or p>0.05 invisible
+    mutate(r=round(r,2),Var2=as.character(Var2),label=paste0(facet," \n (n=",n,")"))
   
   if (heatmap==TRUE) {
-    commands_p <- paste0("p <- cor_table_plot %>% ggplot(aes(y=Var2,x=",facet,",fill=r)) +
-         geom_tile()+ geom_text(aes(y=Var2,x=",facet,",label=r),size=4,col='#ffffff')")
-    eval(parse(text=commands_p))
+    cor_table_plot <- cor_table %>% mutate(r=replace(r,adj.p>0.05,0))
     
-    p_heatmap <- cor_table_plot %>% ggplot(aes(y=Var2,x=Var1,fill=r)) +
-      geom_tile()+ geom_text(aes(y=Var2,x=Var1,label=r),size=4,col='#ffffff')+
-      facet_grid(cols=vars(label),switch="y",scale="free",space="free")+ 
-      scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation") +
-      labs(x="",y="",title=title)+ theme_pubclean()+
-      theme(axis.text.x = element_text(angle=90,vjust=0.5))
+    # delete empty rows
+    if (keep_all==FALSE)  cor_table_plot <- subset( cor_table_plot,facet!="All")
+    
+    if (empty_row_delete==TRUE) {
+      non_empty_gene <- cor_table_plot %>% group_by(Var2) %>% 
+        dplyr::summarise(mean_r=mean(r)) %>% filter(mean_r!=0) %>% as.data.frame() %>% .[,1] %>% as.character()
+      
+      cor_table_plot <- subset(cor_table_plot,Var2 %in% non_empty_gene)
+    }
+    
+    if (flip==TRUE) {
+      
+      n_facet <- length(unique(cor_table_plot$facet))
+      
+      p_heatmap <- cor_table_plot %>% ggplot(aes(y=Var2,x=facet,fill=r)) +
+        geom_tile()+ geom_text(aes(y=Var2,x=facet,label=r),size=4,col='#ffffff')+
+        scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation") +
+        labs(x="",y="",title=title)+ theme_pubclean()+
+        theme(axis.text.x = element_text(angle=90,vjust=0.5),plot.margin = unit(c(1, 7, 1, 1), "lines"),legend.position = "right")+
+        facet_grid(cols=vars(Var1),switch="y",scale="free",space="free")+
+        geom_text(aes(y=Var2,x=n_facet+1,label=n),size=3,col="grey50",check_overlap=TRUE)+
+        coord_cartesian( xlim=c(1,n_facet+0.5),clip = "off")
+      
+      
+    } else {
+      
+      p_heatmap <- cor_table_plot %>% ggplot(aes(y=Var2,x=Var1,fill=r)) +
+        geom_tile()+ geom_text(aes(y=Var2,x=Var1,label=r),size=4,col='#ffffff')+
+        scale_fill_gradient2(low=coul[256],mid="#ffffff",high=coul[1],midpoint = 0,name="Spearman Correlation") +
+        labs(x="",y="",title=title)+ theme_pubclean()+
+        theme(axis.text.x = element_text(angle=90,vjust=0.5),plot.margin = unit(c(1, 7, 1, 1), "lines"),legend.position = "right")
+      
+      if (length(unique(cor_table_plot$n))<=5) {
+        
+        p_heatmap <- p_heatmap + facet_grid(cols=vars(label),switch="y",scale="free",space="free")
+        
+      } else {
+        
+        n_var1 <- length(unique(cor_table_plot$Var1))
+        p_heatmap <- p_heatmap + 
+          geom_text(aes(y=Var2,x=n_var1+1,label=n),size=3,col="grey50")+
+          facet_grid(cols=vars(facet),switch="y",scale="free",space="free")+ 
+          coord_cartesian( xlim=c(1,n_var1+0.5),clip = "off")
+      }
+    }
+ 
     p_heatmap
     return(list(cor_table,p_heatmap))
   } else return(cor_table)
 }
+
 
 
 
