@@ -125,7 +125,7 @@ p_scatter <- function(df,vb,var,sig,facet) {
 cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALSE,flip=FALSE,keep_all=TRUE,col_low="#4a7b94",col_high="#bb5a39"){
   facet_idx=which(colnames(df)==facet)
   
-  vb = vb[-which(apply(df[vb],2,function(x) length(unique(x))==1)==TRUE)]
+  vb = vb[which(apply(df[,vb],2,function(x) length(unique(x))==1)==FALSE)]
   
   if (length(vb)!=0) {
   
