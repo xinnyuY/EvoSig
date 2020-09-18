@@ -30,6 +30,16 @@ cor_facet(
 \item{heatmap}{specify whether plot association heatmap}
 
 \item{title}{Title for association heatmap}
+
+\item{empty_row_delete}{whether to delete rows without any significant correlation value}
+
+\item{flip}{whether to flip facet and x}
+
+\item{keep_all}{whether to show all facet}
+
+\item{col_low}{color for correlation r=-1}
+
+\item{col_high}{color for correlation r=1}
 }
 \value{
 A table including correlation r,p,n between variables A and variables B during group variable and association heatmap (optional)

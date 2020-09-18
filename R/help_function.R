@@ -114,6 +114,11 @@ p_scatter <- function(df,vb,var,sig,facet) {
 #' @param facet name of group variable
 #' @param heatmap specify whether plot association heatmap
 #' @param title Title for association heatmap
+#' @param empty_row_delete whether to delete rows without any significant correlation value
+#' @param flip whether to flip facet and x
+#' @param keep_all whether to show all facet
+#' @param col_low color for correlation r=-1
+#' @param col_high color for correlation r=1
 #' @return A table including correlation r,p,n between variables A and variables B during group variable and association heatmap (optional)
 #' @import dplyr
 #' @import plyr
