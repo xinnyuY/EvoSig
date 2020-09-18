@@ -13,7 +13,9 @@ cor_facet(
   title = "",
   empty_row_delete = FALSE,
   flip = FALSE,
-  keep_all = TRUE
+  keep_all = TRUE,
+  col_low = "#4a7b94",
+  col_high = "#bb5a39"
 )
 }
 \arguments{
