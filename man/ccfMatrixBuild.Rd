@@ -8,7 +8,7 @@
 ccfMatBuild_output(
   post_summary,
   input_folder,
-  output,
+  output = NA,
   ccfupper = 1,
   RankEstimateType = "fraction",
   add_samplename = TRUE,

@@ -8,8 +8,10 @@ ccfMatBuild(
   samplelist,
   upper,
   input_folder,
-  genelist = NA,
-  add_samplename = FALSE
+  binwidth = 0.01,
+  add_samplename = FALSE,
+  plot = FALSE,
+  random = FALSE
 )
 }
 \arguments{
@@ -19,9 +21,15 @@ ccfMatBuild(
 
 \item{input_folder}{folder path stores ccf files}
 
-\item{genelist}{specify whether to only count for certain genes}
+\item{binwidth}{ccf bin width}
 
 \item{add_samplename}{specify whether to add samplename variables}
+
+\item{plot}{whether to plot mutation distribution for samples}
+
+\item{random}{whether to output randomized ccf count matrix}
+
+\item{genelist}{specify whether to only count for certain genes}
 }
 \value{
 A list containing ccfBandCountsMat,ccfBandCountsMat.random,ccfBandFractionMat and ccfBandFractionMat.random

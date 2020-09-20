@@ -121,11 +121,10 @@ p_scatter <- function(df,vb,var,sig,facet) {
 #' @param col_high color for correlation r=1
 #' @return A table including correlation r,p,n between variables A and variables B during group variable and association heatmap (optional)
 #' @import dplyr
-#' @import plyr
+#' @importFrom plyr ddply
 #' @import reshape2
 #' @import ggpubr
 #' @import ggplot2
-#' @importFrom RColorBrewer brewer.pal
 #' @export
 cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALSE,flip=FALSE,keep_all=TRUE,col_low="#4a7b94",col_high="#bb5a39"){
   facet_idx=which(colnames(df)==facet)
