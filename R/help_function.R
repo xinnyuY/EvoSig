@@ -41,36 +41,35 @@ cor.table = function(df,va,vb){
 p_scatter <- function(df,vb,var,sig,facet) {
   
   var_name = colnames(df)[var]
- 
+  n_facet = nchar(facet)+2
+  facet_name = paste0(facet," ")
+  
   cor_table = cor_facet(df=df,va=sig,vb=vb,facet=facet) %>%
-    mutate(p_label=paste0("R =",r," ,p = ",round(adj.p,4)),significant=as.factor(significant)) %>%
+    mutate(p_label=paste0("R =",r," ,p = ",round(adj.p,4)),significant=as.factor(significant),
+           facet=as.character(facet),Var1=as.character(Var1)) %>%
+    mutate(facet=gsub(facet_name,"",facet)) %>%
     filter(Var2==var_name) 
   
+  if (length(sig)==1) cor_table$Var1 = colnames(df)[sig]
   
-  if (length(sig)==1) {
-    cor_table$Var1 = colnames(df)[sig]
-  }
-
-  facet_idx = which(colnames(df)==facet)
-  colnames(df)[facet_idx]="facet"
   colnames(df)[var]="Var"
   
   df_new <- df %>%
     melt(id=colnames(df)[-sig]) %>%
     dplyr::rename(Var1=variable) %>%
     drop_na(Var) %>%
-    mutate(facet=paste0("cluster ",as.numeric(facet))) %>%
+    mutate(Var=as.numeric(Var),facet=as.character(facet),Var1=as.character(Var1)) %>%
     filter(value>0,Var>0) %>%
     left_join(cor_table,by=c("Var1","facet")) %>%
-    left_join(subset(cor_table,facet=="All") %>% dplyr::rename(all_p_label= p_label,all_significant=significant,all_label=label) %>% .[,c(2,7:9)],
-              by="Var1")
+    left_join(subset(cor_table,facet=="All") %>% 
+                dplyr::rename(all_p_label= p_label,all_significant=significant,all_label=label) %>% .[,c(2,7:9)],by="Var1")
   
   fun_median_y <- function(x){
     return(data.frame(y=median(x),label=round(median(x,na.rm=T),2)))}
   
   ymin = min(df_new$Var); ymax=max(df_new$Var);ymean <- mean(df_new$Var)
   xmax = max(df_new$value); xmin=min(df_new$value);xmean=mean(df_new$value)
- 
+  
   p1 <- ggplot(df_new)+
     scale_x_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
     scale_y_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+

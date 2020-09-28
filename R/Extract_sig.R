@@ -15,10 +15,12 @@ Extract_sig <- function(ccfMat,consensus_sig,output=NA){
     Mat[is.na(Mat)] <- 0
     
     EvoDynamics_exposure <- as.data.frame(t(LCD(Mat,consensus_sig))) %>%
-      set_colnames(paste0("Evo_sig_",1:n_sig)) %>%
+      cbind(.,apply(.[,1:n_sig],2,function(x) x/sum(x))) %>%
+      set_colnames(c(paste0("Evo_sig_",1:n_sig),paste0("Evo_sig_",1:n_sig,"_proportion"))) %>%
       mutate(samplename=ccfMat[,101]) %>%
       file_format(n_sig+1)
     
+
     if (!is.na(output)) {
       
       if (!dir.exists(output)) {
@@ -29,4 +31,6 @@ Extract_sig <- function(ccfMat,consensus_sig,output=NA){
     
     EvoDynamics_exposure
 }
+
+
 
