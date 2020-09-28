@@ -4,7 +4,17 @@
 \alias{p_scatter}
 \title{Plot scatterplot for specific measure with evo sig and subtype - 20200915}
 \usage{
-p_scatter(df, vb, var, sig, facet)
+p_scatter(
+  df,
+  vb,
+  var,
+  sig,
+  facet,
+  label.x = NA,
+  label.y = NA,
+  bin.width.x = NA,
+  bin.width.y = NA
+)
 }
 \arguments{
 \item{df}{exposure file merged with measures of interest}

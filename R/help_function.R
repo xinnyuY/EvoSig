@@ -38,7 +38,7 @@ cor.table = function(df,va,vb){
 #' @import ggplot2
 #' @importFrom gridExtra grid.arrange
 #' @export
-p_scatter <- function(df,vb,var,sig,facet) {
+p_scatter <- function(df,vb,var,sig,facet,label.x=NA,label.y=NA,bin.width.x=NA,bin.width.y=NA) {
   
   var_name = colnames(df)[var]
   n_facet = nchar(facet)+2
@@ -67,43 +67,30 @@ p_scatter <- function(df,vb,var,sig,facet) {
   fun_median_y <- function(x){
     return(data.frame(y=median(x),label=round(median(x,na.rm=T),2)))}
   
-  ymin = min(df_new$Var); ymax=max(df_new$Var);ymean <- mean(df_new$Var)
   xmax = max(df_new$value); xmin=min(df_new$value);xmean=mean(df_new$value)
+  ymin = min(df_new$Var); ymax=max(df_new$Var);ymean <- mean(df_new$Var)
   
+  if (is.na(label.x)) label.x=xmean*1.5
+  if (is.na(label.y)) label.y=ymax*0.75
+  if (is.na(bin.width.x)) bin.width.x=ifelse(which.min(c(ymax/120,ymin))==1,ymax/120,ymin/3)
+  if (is.na(bin.width.y)) bin.width.y= xmax/100
+    
   p1 <- ggplot(df_new)+
     scale_x_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
     scale_y_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
     geom_point(aes(x=value,y=Var,colour = significant))+
     geom_smooth(method = "lm",aes(value,Var,color=significant))+
-    geom_boxplot(aes(x=0,y=Var),width=xmax/100,varwidth=TRUE)+  # y_axis boxplot
-    geom_boxplot(aes(x=value,y=ymin),orientation="y",width=ifelse(which.min(c(ymax/120,ymin))==1,ymax/120,ymin/3))+ # x_axis boxplot
+    geom_boxplot(aes(x=0,y=Var),width=bin.width.y,varwidth=TRUE)+  # y_axis boxplot
+    geom_boxplot(aes(x=value,y=ymin),orientation="y",width=bin.width.x)+ # x_axis boxplot
     facet_grid(cols=vars(label),rows=vars(Var1),scale="free")+
-    labs(y="",x="")+
+    labs(y="",x="Evolutionary Dynamics Signature Exposure")+
     theme_pubclean()+
-    geom_text(aes(y=ymax*0.75,x=xmean*1.25,label=p_label,color=significant),size=4,check_overlap=TRUE)+
+    geom_text(aes(y=label.y,x=label.x,label=p_label,color=significant),size=4,check_overlap=TRUE)+
     scale_colour_manual(values=c("grey","#1A9993FF"))+
     theme(legend.position = "right",plot.margin = unit( c(0.2,0,0,0) , units = "lines" ) )
-  
-  
-  p_all <- df_new %>% ggplot()+
-    scale_x_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
-    scale_y_continuous(trans='sqrt',breaks=trans_breaks("sqrt",function(x) x^2),labels=trans_format("sqrt",function(x) x^2))+
-    geom_point(aes(x=value,y=Var,color=all_significant))+
-    geom_smooth(method = "lm",aes(value,Var,color=all_significant))+
-    geom_boxplot(aes(x=0,y=Var),width=xmax/100,varwidth=TRUE)+   # y_axis boxplot
-    geom_boxplot(aes(x=value,y=ymin),orientation="y",width=ifelse(which.min(c(ymax/120,ymin))==1,ymax/120,ymin/3))+ # x_axis boxplot
-    facet_grid(cols=vars(all_label),rows=vars(Var1),scale="free")+
-    labs(y=var_name,x=" ")+
-    theme_pubclean()+
-    geom_text(aes(y=ymax*0.75,x=xmean*1.25,label=all_p_label,color=all_significant),size=4,check_overlap=TRUE)+
-    scale_colour_manual(values=c("grey","#1A9993FF"))+
-    theme(strip.text.y = element_blank() , 
-          strip.background.y = element_blank(),
-          plot.margin = unit( c(0.2,0.2,0,0) , units = "lines" ),
-          legend.position = "none")
-  
-  p <- grid.arrange(p_all,p1,nrow=1,widths=c(1,5),bottom="Evolutionary Dynamics Signature Exposure")
-  return(p)
+
+
+  return(p1)
 }
 #' Correlation calculation function by group and plot association heatmap - 20200915
 #' @name cor_facet
@@ -127,25 +114,25 @@ p_scatter <- function(df,vb,var,sig,facet) {
 #' @export
 cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALSE,flip=FALSE,keep_all=TRUE,col_low="#4a7b94",col_high="#bb5a39"){
   facet_idx=which(colnames(df)==facet)
+  colnames(df)[facet_idx] = "group"
   
   vb = vb[which(apply(df[,vb],2,function(x) length(unique(x))==1)==FALSE)]
   
   if (length(vb)!=0) {
-  
-  eval(parse(text=paste0("cor_table_all <- cor.table(df,va=va,vb=vb) %>% mutate(",facet,"='All') %>% dplyr::rename(facet=",facet,")")))
-  
-  command2 <- paste0("cor_table <- ddply(df, .(",facet,") , .fun =cor.table,va=va,vb=vb) %>% mutate(",facet,"=paste0('",facet," ',",facet,")) %>% dplyr::rename(facet=",facet,") %>% rbind(cor_table_all)") 
-  eval(parse(text=command2))
-  
-  cor_table <- cor_table %>%
-    mutate(r=replace(r,is.na(r),0),adj.p=replace(adj.p,is.na(adj.p)|is.nan(adj.p),1)) %>% # set correlation with na or p>0.05 invisible
-    mutate(r=round(r,2),Var2=as.character(Var2),label=paste0(facet," \n (n=",n,")"))
+    
+    cor_table_all <- cor.table(df,va=va,vb=vb) %>% mutate(group='All')
+ 
+    cor_table <- ddply(df, .(group) , .fun =cor.table,va=va,vb=vb) %>% 
+      rbind(cor_table_all)  %>%
+      mutate(r=replace(r,is.na(r),0),adj.p=replace(adj.p,is.na(adj.p)|is.nan(adj.p),1)) %>% # set correlation with na or p>0.05 invisible
+      mutate(r=round(r,2),Var2=as.character(Var2),label=paste0(group," \n (n=",n,")"))
+
   
   if (heatmap==TRUE) {
-    cor_table_plot <- cor_table %>% mutate(r=replace(r,adj.p>0.05|n<=10,0)) 
+    cor_table_plot <- cor_table %>% mutate(r=replace(r,adj.p>0.05|n<=10,0))  
     
     # delete empty rows
-    if (keep_all==FALSE)  cor_table_plot <- subset( cor_table_plot,facet!="All")
+    if (keep_all==FALSE)  cor_table_plot <- subset( cor_table_plot,group!="All")
     
     if (empty_row_delete==TRUE) {
       non_empty_gene <- cor_table_plot %>% group_by(Var2) %>% 
@@ -159,8 +146,8 @@ cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALS
       n_facet <- length(non_empty_gene)
       
       p_heatmap <- cor_table_plot %>% 
-        ggplot(aes(y=Var2,x=facet,fill=r)) +
-        geom_tile()+ geom_text(aes(y=Var2,x=facet,label=r),size=4,col='#ffffff')+
+        ggplot(aes(y=Var2,x=group,fill=r)) +
+        geom_tile()+ geom_text(aes(y=Var2,x=group,label=r),size=4,col='#ffffff')+
         facet_grid(cols=vars(Var1),switch="y",scale="free",space="free")
       
     } else {
@@ -177,7 +164,7 @@ cor_facet = function(df,va,vb,facet,heatmap=FALSE,title="",empty_row_delete=FALS
         n_var1 <- length(unique(cor_table_plot$Var1))
         p_heatmap <- p_heatmap + 
           geom_text(aes(y=Var2,x=n_var1+1,label=n),size=3,col="grey50")+
-          facet_grid(cols=vars(facet),switch="y",scale="free",space="free")+ 
+          facet_grid(cols=vars(group),switch="y",scale="free",space="free")+ 
           coord_cartesian( xlim=c(1,n_var1+0.5),clip = "off")
       }
     }
